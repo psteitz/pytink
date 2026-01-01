@@ -177,28 +177,94 @@ def load_config(config_path):
         return {}
 
 
-def save_model(model, output_dir, logger, tickers=None):
-    """Save trained model to disk.
+def save_model(model, output_dir, logger, tickers=None, config=None, args=None, log_file=None, delta_values=None):
+    """Save trained model, config, and log file to a dedicated subdirectory.
+    
+    Directory structure: output_dir/<tickers>/<timestamp>/
+    E.g., models/AAPL-GOOGL-MSFT/20260101_143052/
     
     Args:
         model: The trained model to save
-        output_dir: Directory to save the model
+        output_dir: Base directory for models
         logger: Logger instance
-        tickers: List of stock tickers to include in filename
+        tickers: List of stock tickers to include in directory/filename
+        config: Configuration dict used for training
+        args: Argument namespace with training parameters
+        log_file: Path to the log file to copy
+        delta_values: List of delta values used for encoding
     """
-    # Create filename with tickers prefix
+    import shutil
+    
+    # Create subdirectory with tickers name
     if tickers:
         ticker_str = '-'.join(sorted(tickers))
-        filename = f"{ticker_str}_model.pt"
     else:
-        filename = "model.pt"
+        ticker_str = "model"
     
-    output_path = Path(output_dir) / filename
+    # Create timestamp subdirectory for this run
+    timestamp_str = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    model_dir = Path(output_dir) / ticker_str / timestamp_str
+    model_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Save model weights
+    model_path = model_dir / "model.pt"
     try:
-        torch.save(model.get_model().state_dict(), output_path)
-        logger.info(f"✓ Model saved to {output_path}")
+        torch.save(model.get_model().state_dict(), model_path)
+        logger.info(f"✓ Model saved to {model_path}")
     except Exception as e:
         logger.error(f"Failed to save model: {e}")
+        return
+    
+    # Save config file in same format as config_template.yaml
+    # This config can be used directly with --config parameter
+    config_path = model_dir / "config.yaml"
+    try:
+        # Build config in the same structure as config_template.yaml
+        training_config = {
+            'data': {
+                'num_stocks': len(tickers) if tickers else args.stocks if args else 20,
+                'interval_minutes': args.interval if args else 15,
+                'sequence_length': args.sequence_length if args else 8,
+            },
+            'training': {
+                'batch_size': args.batch_size if args else 64,
+                'num_epochs': args.epochs if args else 10,
+                'learning_rate': args.learning_rate if args else 1e-5,
+            },
+            'output': {
+                'save_model': True,
+            },
+        }
+        
+        # Add delta_ranges if custom values were used
+        if delta_values is not None:
+            training_config['delta_ranges'] = delta_values
+        elif config and 'delta_ranges' in config:
+            training_config['delta_ranges'] = config['delta_ranges']
+        
+        # Add tickers as a comment-like field for reference
+        training_config['_tickers'] = sorted(tickers) if tickers else []
+        
+        if yaml is not None:
+            with open(config_path, 'w') as f:
+                f.write("# Configuration used for this training run\n")
+                f.write("# Can be used with: python train_model.py --db-password PASSWORD --config config.yaml\n\n")
+                yaml.dump(training_config, f, default_flow_style=False, sort_keys=False)
+            logger.info(f"✓ Config saved to {config_path}")
+        else:
+            logger.warning("PyYAML not available, skipping config save")
+    except Exception as e:
+        logger.error(f"Failed to save config: {e}")
+    
+    # Copy log file
+    if log_file and Path(log_file).exists():
+        log_dest = model_dir / "training.log"
+        try:
+            shutil.copy(log_file, log_dest)
+            logger.info(f"✓ Log file copied to {log_dest}")
+        except Exception as e:
+            logger.error(f"Failed to copy log file: {e}")
 
 
 def save_vocabulary(vocab, output_dir, logger):
@@ -574,6 +640,107 @@ def main():
     logger.info(f"Final Perplexity: {final_perplexity:.4f}")
     logger.info("="*60)
     
+    # Generate per-stock confusion matrices
+    logger.info("")
+    logger.info("="*60)
+    logger.info("PER-STOCK CONFUSION MATRICES (Letter-by-Letter Analysis)")
+    logger.info("="*60)
+    
+    # Collect predicted and actual words
+    all_true_indices = []
+    all_pred_indices = []
+    with torch.no_grad():
+        for input_ids, labels in eval_loader:
+            input_ids = input_ids.to(device)
+            labels = labels.to(device)
+            outputs = model.forward(input_ids=input_ids, labels=labels)
+            logits = outputs['logits']
+            predictions = torch.argmax(logits[:, -1, :], dim=-1)
+            all_true_indices.extend(labels.cpu().numpy())
+            all_pred_indices.extend(predictions.cpu().numpy())
+    
+    # Create reverse vocab mapping (index -> word)
+    idx_to_word = {idx: word for word, idx in vocab.items()}
+    
+    # Convert indices to words
+    true_words = [idx_to_word.get(idx, '?'*len(tickers)) for idx in all_true_indices]
+    pred_words = [idx_to_word.get(idx, '?'*len(tickers)) for idx in all_pred_indices]
+    
+    # Get the letters used (typically a-g)
+    delta_letters = [chr(ord('a') + i) for i in range(len(processor.delta_values))]
+    
+    # For each stock position, build confusion matrix
+    num_stocks = len(tickers)
+    for stock_idx, ticker in enumerate(tickers):
+        # Collect actual and predicted letters for this stock position
+        actual_letters = []
+        predicted_letters = []
+        
+        for true_word, pred_word in zip(true_words, pred_words):
+            if stock_idx < len(true_word) and stock_idx < len(pred_word):
+                actual_letters.append(true_word[stock_idx])
+                predicted_letters.append(pred_word[stock_idx])
+        
+        if not actual_letters:
+            continue
+        
+        # Build confusion matrix
+        # Rows = actual, Columns = predicted
+        confusion = {actual: {pred: 0 for pred in delta_letters} for actual in delta_letters}
+        
+        for actual, predicted in zip(actual_letters, predicted_letters):
+            if actual in confusion and predicted in delta_letters:
+                confusion[actual][predicted] += 1
+        
+        # Calculate per-stock accuracy
+        correct = sum(1 for a, p in zip(actual_letters, predicted_letters) if a == p)
+        stock_accuracy = correct / len(actual_letters) if actual_letters else 0
+        
+        logger.info(f"\n{ticker} (position {stock_idx + 1}/{num_stocks}) - Accuracy: {stock_accuracy:.4f}")
+        
+        # Print confusion matrix header
+        header = "Actual\\Pred | " + " | ".join(f" {l} " for l in delta_letters) + " | Total"
+        logger.info("-" * len(header))
+        logger.info(header)
+        logger.info("-" * len(header))
+        
+        # Print each row
+        for actual in delta_letters:
+            row_total = sum(confusion[actual].values())
+            if row_total > 0:  # Only show rows with data
+                row_values = " | ".join(f"{confusion[actual][pred]:3d}" for pred in delta_letters)
+                logger.info(f"     {actual}      | {row_values} | {row_total:5d}")
+        
+        logger.info("-" * len(header))
+    
+    # Summary statistics across all stocks
+    logger.info("\n" + "="*60)
+    logger.info("SUMMARY: Per-Stock Accuracies")
+    logger.info("="*60)
+    
+    stock_accuracies = []
+    for stock_idx, ticker in enumerate(tickers):
+        actual_letters = [true_words[i][stock_idx] for i in range(len(true_words)) 
+                         if stock_idx < len(true_words[i]) and stock_idx < len(pred_words[i])]
+        predicted_letters = [pred_words[i][stock_idx] for i in range(len(pred_words))
+                            if stock_idx < len(true_words[i]) and stock_idx < len(pred_words[i])]
+        
+        if actual_letters:
+            correct = sum(1 for a, p in zip(actual_letters, predicted_letters) if a == p)
+            acc = correct / len(actual_letters)
+            stock_accuracies.append((ticker, acc))
+    
+    # Sort by accuracy
+    stock_accuracies.sort(key=lambda x: x[1], reverse=True)
+    for ticker, acc in stock_accuracies:
+        logger.info(f"  {ticker:6s}: {acc:.4f}")
+    
+    if stock_accuracies:
+        avg_stock_acc = sum(acc for _, acc in stock_accuracies) / len(stock_accuracies)
+        logger.info(f"\n  Average per-stock accuracy: {avg_stock_acc:.4f}")
+    
+    logger.info("="*60)
+    
     logger.info("Analysis complete!")
     
     # Create output directory for saved artifacts
@@ -589,7 +756,7 @@ def main():
     
     # Save artifacts if requested
     if args.save_model:
-        save_model(model, models_dir, logger, tickers=tickers)
+        save_model(model, models_dir, logger, tickers=tickers, config=config, args=args, log_file=log_file, delta_values=delta_values)
     
     if args.save_vocabulary:
         save_vocabulary(vocab, output_dir, logger)
