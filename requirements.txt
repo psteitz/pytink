@@ -1,0 +1,8 @@
+mysql-connector-python==8.0.33
+numpy==1.26.4
+torch==2.9.1
+transformers==4.57.3
+pandas==2.3.3
+tqdm==4.67.1
+matplotlib==3.10.8
+pytest==9.0.2

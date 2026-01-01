@@ -1,0 +1,49 @@
+# Configuration template for stock prediction experiments
+# Copy and modify to customize your analysis
+
+# Database Configuration
+# Note: Password must be provided via --db-password command-line argument
+database:
+  host: localhost
+  port: 3306
+  user: tinker
+  database: tinker
+
+# Data Processing Configuration
+data:
+  num_stocks: 20
+  interval_minutes: 15
+  sequence_length: 8
+
+# Model Configuration
+model:
+  hidden_size: 256
+  num_hidden_layers: 6
+  num_attention_heads: 8
+  max_position_embeddings: 256
+
+# Training Configuration
+training:
+  batch_size: 64
+  num_epochs: 10
+  learning_rate: 0.0001
+  weight_decay: 0
+  warmup_steps: 100
+
+# Output Configuration
+output:
+  save_model: false
+  save_vocabulary: false
+  save_predictions: false
+  plot_results: false
+  verbose: true
+
+# Delta Encoding (current 7-level configuration)
+delta_ranges:
+  - -0.01    # a: -1%
+  - -0.005   # b: -0.5%
+  - -0.001   # c: -0.1%
+  -  0.0     # d: 0%
+  -  0.001   # e: +0.1%
+  -  0.005   # f: +0.5%
+  -  0.01    # g: +1%

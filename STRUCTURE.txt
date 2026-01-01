@@ -1,0 +1,340 @@
+PROJECT STRUCTURE & FILE DESCRIPTIONS
+=====================================
+
+pytink/
+│
+├── README.md                           # Full technical documentation
+├── QUICKSTART.md                       # Quick start guide
+├── PROJECT_SUMMARY.md                  # Project overview
+├── EXAMPLES.md                         # Practical usage examples
+├── STRUCTURE.txt                       # This file
+│
+├── requirements.txt                    # Python package dependencies
+├── config_template.py                  # Configuration templates
+├── test_installation.py                # Installation verification script
+├── train_model.py                      # Command-line interface
+│
+├── src/                                # Core source code
+│   ├── __init__.py                     # Package initialization
+│   ├── database.py                     # MySQL database interface
+│   ├── processor.py                    # Data processing & delta encoding
+│   ├── model.py                        # PyTorch models and datasets
+│   └── analysis.py                     # Visualization utilities
+│
+└── tests/                              # Unit and integration tests
+    ├── test_database.py                # Database tests
+    ├── test_processor.py               # Processor tests
+    ├── test_model.py                   # Model tests
+    └── test_integration.py             # Integration tests
+
+
+FILE DESCRIPTIONS
+=================
+
+DOCUMENTATION
+=============
+
+README.md
+  - Complete technical documentation
+  - Module documentation
+  - Configuration options
+  - Performance notes
+  - Future enhancements
+
+QUICKSTART.md
+  - Setup instructions
+  - Command-line usage
+  - Understanding outputs
+  - Troubleshooting guide
+  - Configuration parameters
+
+PROJECT_SUMMARY.md
+  - Project overview
+  - Key features
+  - Technology stack
+  - Workflow diagram
+  - Use cases
+
+EXAMPLES.md
+  - 11 detailed usage examples
+  - Basic to advanced scenarios
+  - Troubleshooting examples
+  - Code snippets
+
+STRUCTURE.txt
+  - This file
+  - Directory layout
+  - File descriptions
+
+
+SOURCE CODE
+===========
+
+src/database.py
+  - StockDatabase class
+  - MySQL connection management
+  - Quote fetching methods
+  - ~130 lines
+
+src/processor.py
+  - PriceProcessor class
+  - Price parsing
+  - Delta calculation & encoding
+  - Word generation from time series
+  - Vocabulary analysis
+  - ~250 lines
+
+src/model.py
+  - StockWordDataset (PyTorch Dataset)
+  - StockTransformerModel wrapper
+  - Forward/backward pass
+  - Prediction methods
+  - ~180 lines
+
+src/analysis.py
+  - Training visualization functions
+  - Word frequency analysis
+  - Prediction quality metrics
+  - Vocabulary save/load utilities
+  - ~100 lines
+
+src/__init__.py
+  - Package initialization
+  - Public API definition
+
+
+TEST SUITE
+==========
+
+tests/test_database.py
+  - 7 unit tests for database module
+  - Mock MySQL connections
+  - ~120 lines
+
+tests/test_processor.py
+  - 27 unit tests for processor module
+  - Delta calculations, symbol mapping, quantization
+  - ~200 lines
+
+tests/test_model.py
+  - 22 unit tests for model module
+  - Dataset creation, tensor shapes, model forward pass
+  - ~220 lines
+
+tests/test_integration.py
+  - 13 integration tests
+  - End-to-end workflow testing
+  - YAML configuration, file I/O
+  - ~370 lines
+
+Total: 68 tests, all using pytest
+
+
+EXECUTABLE SCRIPTS
+==================
+
+train_model.py
+  - Command-line interface
+  - Full pipeline execution
+  - Configurable via command arguments
+  - Progress logging
+  - ~200 lines
+
+test_installation.py
+  - Installation verification
+  - Import testing
+  - Database connectivity check
+  - Model creation validation
+  - ~280 lines
+
+
+CONFIGURATION
+==============
+
+requirements.txt
+  - Python package dependencies
+  - Specific versions listed
+  - Install with: pip install -r requirements.txt
+
+config_template.py
+  - Configuration templates
+  - Experiment presets
+  - Parameter documentation
+  - Delta range definition
+
+
+
+USAGE FLOWS
+===========
+
+FLOW 1: Batch (Command Line) - RECOMMENDED
+  1. python train_model.py [--options]
+  2. Full pipeline runs automatically
+  3. Results printed to console
+  4. Optional output files saved
+
+FLOW 2: Programmatic (Python)
+  1. import src modules
+  2. Create StockDatabase instance
+  3. Fetch data with processor
+  4. Create dataset
+  5. Train model with PyTorch
+  6. Evaluate results
+
+FLOW 3: Testing
+  1. pytest tests/ (run all tests)
+  2. pytest tests/test_processor.py (specific module)
+  3. pytest tests/ -v (verbose output)
+  4. pytest tests/ --cov=src (with coverage)
+
+
+KEY CLASSES & FUNCTIONS
+=======================
+
+DATABASE (database.py)
+  - StockDatabase
+    - connect()
+    - close()
+    - get_all_stocks()
+    - get_random_stocks(count)
+    - get_quotes_for_stock(stock_id)
+    - get_quotes_for_stocks(stock_ids)
+
+PROCESSING (processor.py)
+  - PriceProcessor
+    - parse_price(price_str)
+    - calculate_delta(old, new)
+    - delta_to_symbol(delta)
+    - symbol_to_delta(symbol)
+    - align_quotes_by_time()
+    - extract_words()
+    - count_unique_words()
+  
+  Constants:
+    - DELTA_VALUES (7 breakpoints)
+    - DELTA_TO_CHAR (delta→letter mapping)
+    - CHAR_TO_DELTA (letter→delta mapping)
+
+MODELS (model.py)
+  - StockWordDataset (PyTorch Dataset)
+    - __len__()
+    - __getitem__(idx)
+  
+  - StockTransformerModel
+    - forward(input_ids, labels)
+    - predict(input_ids)
+    - train()
+    - eval()
+    - parameters()
+
+ANALYSIS (analysis.py)
+  - plot_training_loss(history)
+  - plot_epoch_loss(history)
+  - plot_word_frequency(word_freq)
+  - analyze_prediction_quality(predictions)
+  - save_vocabulary(vocab, filepath)
+  - load_vocabulary(filepath)
+
+
+CONFIGURATION PARAMETERS
+========================
+
+Data Processing
+  - num_stocks: 5-50 (default: 20)
+  - interval_minutes: 1-1440 (default: 30)
+  - sequence_length: 2-32 (default: 16)
+
+Model Architecture
+  - vocab_size: Determined by data
+  - hidden_size: 256 (fixed)
+  - num_hidden_layers: 6 (fixed)
+  - num_attention_heads: 8 (fixed)
+  - max_position_embeddings: 256 (fixed)
+
+Training
+  - batch_size: 8-256 (default: 64)
+  - num_epochs: 1-100 (default: 10)
+  - learning_rate: 1e-6 to 1e-2 (default: 1e-5)
+  - optimizer: Adam (fixed)
+
+
+DELTA ENCODING REFERENCE
+========================
+
+Symbol | Delta  | Percentage Change
+-------|--------|-------------------
+   a   | -0.01  | -1.0% or less
+   b   | -0.005 | -0.5%
+   c   | -0.001 | -0.1%
+   d   |  0.00  | 0.0%
+   e   | +0.001 | +0.1%
+   f   | +0.005 | +0.5%
+   g   | +0.01  | +1.0% or more
+
+
+TESTING & VALIDATION
+====================
+
+Run installation test:
+  python test_installation.py
+
+Tests included:
+  ✓ Package imports
+  ✓ Module imports
+  ✓ Database connection
+  ✓ PyTorch configuration
+  ✓ Model creation
+  ✓ Data processing
+
+
+FILE STATISTICS
+===============
+
+Total files: 20+
+Total lines of code: ~1,800+
+Total documentation: ~2,000+ lines
+Test coverage: 68 pytest tests
+Python version: 3.8+
+Dependencies: 8 major packages (including pytest)
+
+
+VERSION HISTORY
+===============
+
+v0.2.1 (Jan 2, 2026)
+  - Added mandatory --db-password CLI argument
+  - Removed hardcoded database password
+  - Added 15 new tests (68 total)
+  - Documentation updates
+
+v0.2.0 (Jan 1, 2026)
+  - Converted unittest to pytest
+  - 53 unit and integration tests
+  - Removed Jupyter notebook dependency
+  - CLI-only approach
+
+v0.1.0 (Dec 29, 2025)
+  - Initial release
+  - Core functionality complete
+  - Full documentation
+  - Jupyter notebook
+  - CLI interface
+
+
+
+NEXT STEPS
+==========
+
+1. Review README.md for detailed documentation
+2. Follow QUICKSTART.md for setup
+3. Run test_installation.py to verify setup
+4. Run pytest tests/ to verify all tests pass
+5. Try EXAMPLES.md for usage patterns
+6. Run python train_model.py to train a model
+
+For questions or issues:
+  - Check QUICKSTART.md troubleshooting
+  - Review EXAMPLES.md for similar use cases
+  - Check code comments in src/ modules
+  - Run pytest tests/ for verification
+
