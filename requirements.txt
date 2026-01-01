@@ -6,3 +6,4 @@ pandas==2.3.3
 tqdm==4.67.1
 matplotlib==3.10.8
 pytest==9.0.2
+yfinance==1.0
