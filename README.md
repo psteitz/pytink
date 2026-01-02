@@ -6,7 +6,7 @@ A transformer-based model that treats stock price movements as a language modeli
 
 This project explores the question: **what if we treat stock price movements like words in a language?**
 
-Just as transformer models learn to predict the next word in a sentence by understanding context and patterns, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" encodes simultaneous price changes across multiple stocks at a given time interval.
+Just as transformer models learn to predict the next word in a sentence by understanding context and patterns, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" encodes simultaneous price changes across multiple stocks over a given time interval.
 
 Stock prices don't move in isolation. The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form "words" and the transformer model is trained to predict the next word in the sequence.
 
