@@ -177,6 +177,20 @@ def load_config(config_path):
         return {}
 
 
+def load_default_config():
+    """Load default configuration from config_template.yaml.
+    
+    Returns:
+        Dictionary with default configuration values
+    """
+    template_path = Path(__file__).parent / 'config_template.yaml'
+    if template_path.exists():
+        return load_config(template_path)
+    else:
+        logger.warning(f"Default config template not found at {template_path}")
+        return {}
+
+
 def save_model(model, output_dir, logger, tickers=None, config=None, args=None, log_file=None, delta_values=None):
     """Save trained model, config, and log file to a dedicated subdirectory.
     
@@ -226,10 +240,18 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
                 'interval_minutes': args.interval if args else 15,
                 'sequence_length': args.sequence_length if args else 8,
             },
+            'model': {
+                'hidden_size': args.hidden_size if args else 128,
+                'num_hidden_layers': args.num_hidden_layers if args else 4,
+                'num_attention_heads': args.num_attention_heads if args else 4,
+                'max_position_embeddings': args.max_position_embeddings if args else 256,
+            },
             'training': {
                 'batch_size': args.batch_size if args else 64,
-                'num_epochs': args.epochs if args else 10,
+                'num_epochs': args.epochs if args else 25,
                 'learning_rate': args.learning_rate if args else 1e-5,
+                'weight_decay': args.weight_decay if args else 0.0,
+                'early_stopping_patience': args.early_stopping_patience if args else 5,
             },
             'output': {
                 'save_model': True,
@@ -348,49 +370,76 @@ def plot_results(training_history, eval_history, output_dir, logger):
 
 
 def main():
+    # Load default config from template first
+    default_config = load_default_config()
+    default_data = default_config.get('data', {})
+    default_training = default_config.get('training', {})
+    default_output = default_config.get('output', {})
+    
     parser = argparse.ArgumentParser(description='Stock Price Prediction Model')
     parser.add_argument('--db-password', type=str, required=True, help='Database password (required)')
     parser.add_argument('--config', type=str, default=None, help='Path to YAML config file')
-    parser.add_argument('--stocks', type=int, default=20, help='Number of random stocks to use')
-    parser.add_argument('--interval', type=int, default=30, help='Time interval in minutes')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of training epochs')
-    parser.add_argument('--batch-size', type=int, default=64, help='Training batch size')
-    parser.add_argument('--learning-rate', type=float, default=1e-5, help='Learning rate')
-    parser.add_argument('--sequence-length', type=int, default=16, help='Sequence length for context')
-    parser.add_argument('--save-model', type=lambda x: x.lower() != 'false', default=True, 
+    parser.add_argument('--stocks', type=int, default=None, help='Number of random stocks to use')
+    parser.add_argument('--interval', type=int, default=None, help='Time interval in minutes')
+    parser.add_argument('--epochs', type=int, default=None, help='Number of training epochs')
+    parser.add_argument('--early-stopping-patience', type=int, default=None, help='Early stopping patience (0 to disable)')
+    parser.add_argument('--batch-size', type=int, default=None, help='Training batch size')
+    parser.add_argument('--learning-rate', type=float, default=None, help='Learning rate')
+    parser.add_argument('--weight-decay', type=float, default=None, help='Weight decay for regularization')
+    parser.add_argument('--sequence-length', type=int, default=None, help='Sequence length for context')
+    parser.add_argument('--save-model', type=lambda x: x.lower() != 'false', default=None, 
                         help='Save trained model to disk (default: True)')
     
     args = parser.parse_args()
     
-    # Load config file if provided
-    config = {}
+    # Load user config file if provided
+    user_config = {}
     if args.config:
-        config = load_config(args.config)
+        user_config = load_config(args.config)
     
-    # Merge config file values with command-line args (CLI args take precedence)
-    if config:
-        # Data config
-        args.stocks = config.get('data', {}).get('num_stocks', args.stocks)
-        args.interval = config.get('data', {}).get('interval_minutes', args.interval)
-        args.sequence_length = config.get('data', {}).get('sequence_length', args.sequence_length)
-        args.tickers = config.get('data', {}).get('tickers', None)
-        
-        # Training config
-        args.batch_size = config.get('training', {}).get('batch_size', args.batch_size)
-        args.epochs = config.get('training', {}).get('num_epochs', args.epochs)
-        args.learning_rate = config.get('training', {}).get('learning_rate', args.learning_rate)
-        
-        # Output config - CLI --save-model takes precedence, then config, then default True
-        args.save_model = config.get('output', {}).get('save_model', args.save_model)
-        args.save_vocabulary = config.get('output', {}).get('save_vocabulary', False)
-        args.save_predictions = config.get('output', {}).get('save_predictions', False)
-        args.plot_results = config.get('output', {}).get('plot_results', False)
-    else:
-        # Set defaults for output options (save_model already set via CLI default)
-        args.save_vocabulary = False
-        args.save_predictions = False
-        args.plot_results = False
-        args.tickers = None
+    # Merge configs: CLI args > user config > default config
+    # Helper to get value with priority: CLI > user_config > default_config > fallback
+    def get_config_value(cli_val, user_section, user_key, default_section, default_key, fallback):
+        if cli_val is not None:
+            return cli_val
+        if user_config.get(user_section, {}).get(user_key) is not None:
+            return user_config[user_section][user_key]
+        if default_config.get(default_section, {}).get(default_key) is not None:
+            return default_config[default_section][default_key]
+        return fallback
+    
+    # Data config
+    args.stocks = get_config_value(args.stocks, 'data', 'num_stocks', 'data', 'num_stocks', 10)
+    args.interval = get_config_value(args.interval, 'data', 'interval_minutes', 'data', 'interval_minutes', 30)
+    args.sequence_length = get_config_value(args.sequence_length, 'data', 'sequence_length', 'data', 'sequence_length', 32)
+    args.tickers = user_config.get('data', {}).get('tickers', default_data.get('tickers', None))
+    
+    # Training config
+    args.batch_size = get_config_value(args.batch_size, 'training', 'batch_size', 'training', 'batch_size', 64)
+    args.epochs = get_config_value(args.epochs, 'training', 'num_epochs', 'training', 'num_epochs', 25)
+    args.learning_rate = get_config_value(args.learning_rate, 'training', 'learning_rate', 'training', 'learning_rate', 0.0003)
+    args.weight_decay = get_config_value(args.weight_decay, 'training', 'weight_decay', 'training', 'weight_decay', 0.01)
+    args.early_stopping_patience = get_config_value(args.early_stopping_patience, 'training', 'early_stopping_patience', 'training', 'early_stopping_patience', 5)
+    
+    # Output config
+    args.save_model = get_config_value(args.save_model, 'output', 'save_model', 'output', 'save_model', True)
+    args.save_vocabulary = user_config.get('output', {}).get('save_vocabulary', default_output.get('save_vocabulary', False))
+    args.save_predictions = user_config.get('output', {}).get('save_predictions', default_output.get('save_predictions', False))
+    args.plot_results = user_config.get('output', {}).get('plot_results', default_output.get('plot_results', False))
+    
+    # Model config
+    default_model = default_config.get('model', {})
+    user_model = user_config.get('model', {})
+    args.hidden_size = user_model.get('hidden_size', default_model.get('hidden_size', 128))
+    args.num_hidden_layers = user_model.get('num_hidden_layers', default_model.get('num_hidden_layers', 4))
+    args.num_attention_heads = user_model.get('num_attention_heads', default_model.get('num_attention_heads', 4))
+    args.max_position_embeddings = user_model.get('max_position_embeddings', default_model.get('max_position_embeddings', 256))
+    
+    # Delta ranges - use user config, then default config, then hardcoded fallback
+    args.delta_ranges = user_config.get('delta_ranges', default_config.get('delta_ranges', None))
+    
+    # Store merged config for later use (e.g., saving with model)
+    config = user_config if user_config else default_config
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"Using device: {device}")
@@ -486,11 +535,10 @@ def main():
     # 4. Process data
     logger.info(f"Processing data with {args.interval}-minute intervals...")
     
-    # Get custom delta ranges from config if provided
-    delta_values = None
-    if config and 'delta_ranges' in config:
-        delta_values = config['delta_ranges']
-        logger.info(f"Using custom delta ranges: {delta_values}")
+    # Get delta ranges from args (already merged from CLI > user config > default config)
+    delta_values = args.delta_ranges
+    if delta_values is not None:
+        logger.info(f"Using delta ranges: {delta_values}")
     
     processor = PriceProcessor(interval_minutes=args.interval, delta_values=delta_values)
     words = processor.extract_words(quotes_dict, stock_ids)
@@ -515,7 +563,19 @@ def main():
     
     # Compute delta frequency distributions
     logger.info(f"Delta frequency distributions ({args.interval}-minute intervals):")
-    delta_labels = ['a (-1%)', 'b (-0.5%)', 'c (-0.1%)', 'd (0%)', 'e (+0.1%)', 'f (+0.5%)', 'g (+1%)']
+    
+    # Generate labels dynamically from processor's delta values
+    delta_labels = []
+    for i, delta in enumerate(processor.delta_values):
+        char = chr(ord('a') + i)
+        if delta == 0:
+            label = f"{char} (0%)"
+        elif delta > 0:
+            label = f"{char} (+{delta*100:.1f}%)"
+        else:
+            label = f"{char} ({delta*100:.1f}%)"
+        delta_labels.append(label)
+    
     delta_counts = {label: 0 for label in delta_labels}
     
     for word in words:
@@ -552,31 +612,37 @@ def main():
     
     logger.info(f"Train sequences: {len(train_dataset)}, Eval sequences: {len(eval_dataset)}")
     
-    # 8. Initialize model (Stage 1: larger model)
+    # 8. Initialize model
     data_elapsed = time.time() - data_start_time
     logger.info(f"Data preparation completed in {data_elapsed:.2f} seconds ({data_elapsed/60:.2f} minutes)")
     
     model_start_time = time.time()
     model = StockTransformerModel(
         vocab_size=len(vocab),
-        max_position_embeddings=256,
-        hidden_size=256,
-        num_hidden_layers=6,
-        num_attention_heads=8,
+        max_position_embeddings=args.max_position_embeddings,
+        hidden_size=args.hidden_size,
+        num_hidden_layers=args.num_hidden_layers,
+        num_attention_heads=args.num_attention_heads,
         device=device
     )
     
     # 9. Training
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=custom_collate_fn)
     eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=custom_collate_fn)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     
     logger.info(f"Starting training for {args.epochs} epochs...")
+    if args.early_stopping_patience > 0:
+        logger.info(f"Early stopping enabled with patience={args.early_stopping_patience}")
     
     best_eval_loss = float('inf')
+    best_model_state = None
+    epochs_without_improvement = 0
+    actual_epochs = 0
     
     model.train()
     for epoch in range(args.epochs):
+        actual_epochs = epoch + 1
         # Training phase
         epoch_loss = 0.0
         for batch_idx, (input_ids, labels) in enumerate(train_loader):
@@ -618,9 +684,25 @@ def main():
         
         if avg_eval_loss < best_eval_loss:
             best_eval_loss = avg_eval_loss
+            epochs_without_improvement = 0
+            # Save best model state
+            best_model_state = {k: v.cpu().clone() for k, v in model.get_model().state_dict().items()}
             logger.info(f"  ✓ Best eval loss improved to {best_eval_loss:.4f}")
+        else:
+            epochs_without_improvement += 1
+            logger.info(f"  No improvement for {epochs_without_improvement} epoch(s)")
+        
+        # Early stopping check
+        if args.early_stopping_patience > 0 and epochs_without_improvement >= args.early_stopping_patience:
+            logger.info(f"Early stopping triggered after {epoch + 1} epochs (no improvement for {args.early_stopping_patience} epochs)")
+            break
         
         model.train()
+    
+    # Restore best model weights if we have them
+    if best_model_state is not None:
+        model.get_model().load_state_dict(best_model_state)
+        logger.info(f"Restored best model weights (eval loss: {best_eval_loss:.4f})")
     
     # Final evaluation on eval set
     training_elapsed = time.time() - model_start_time
