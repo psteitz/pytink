@@ -8,6 +8,15 @@ import sys
 import subprocess
 from pathlib import Path
 
+try:
+    import pytest
+except ImportError:
+    # pytest not available, create a dummy for standalone use
+    class pytest:
+        @staticmethod
+        def fail(msg):
+            raise AssertionError(msg)
+
 def test_imports():
     """Test that all required packages can be imported."""
     print("=" * 60)
@@ -22,7 +31,7 @@ def test_imports():
         'transformers': 'transformers',
     }
     
-    success = True
+    failed = []
     for module, package_name in packages.items():
         try:
             __import__(module)
@@ -30,9 +39,9 @@ def test_imports():
         except ImportError as e:
             print(f"✗ {module} - MISSING")
             print(f"  Install with: pip install {package_name}")
-            success = False
+            failed.append(module)
     
-    return success
+    assert not failed, f"Failed to import: {failed}"
 
 def test_module_imports():
     """Test that project modules can be imported."""
@@ -50,7 +59,7 @@ def test_module_imports():
         ('analysis', 'plot_training_loss'),
     ]
     
-    success = True
+    failed = []
     for module_name, class_name in modules:
         try:
             module = __import__(module_name)
@@ -58,12 +67,18 @@ def test_module_imports():
             print(f"✓ {module_name}.{class_name}")
         except (ImportError, AttributeError) as e:
             print(f"✗ {module_name}.{class_name}")
-            success = False
+            failed.append(f"{module_name}.{class_name}")
     
-    return success
+    assert not failed, f"Failed to import: {failed}"
 
-def test_database_connection():
-    """Test database connection (requires running MySQL)."""
+def test_database_connection(db_password):
+    """Test database connection (requires running MySQL).
+    
+    Run with: pytest --db-password=YOUR_PASSWORD test_installation.py::test_database_connection
+    """
+    if db_password is None:
+        pytest.skip("Database password not provided. Use --db-password to run this test.")
+    
     print("\n" + "=" * 60)
     print("Testing Database Connection")
     print("=" * 60)
@@ -72,7 +87,7 @@ def test_database_connection():
     
     try:
         from database import StockDatabase
-        db = StockDatabase()
+        db = StockDatabase(password=db_password)
         db.connect()
         print("✓ Database connection successful")
         
@@ -84,7 +99,6 @@ def test_database_connection():
         
         db.close()
         print("✓ Database disconnected")
-        return True
     
     except Exception as e:
         print(f"✗ Database connection failed: {e}")
@@ -93,7 +107,7 @@ def test_database_connection():
         print("  - Database 'tinker' exists")
         print("  - User 'tinker' has correct password")
         print("  - Port 3306 is accessible")
-        return False
+        pytest.fail(f"Database connection failed: {e}")
 
 def test_pytorch_cuda():
     """Test PyTorch CUDA support."""
@@ -111,7 +125,7 @@ def test_pytorch_cuda():
     else:
         print("⚠ CUDA is not available (will use CPU)")
     
-    return True
+    assert torch is not None  # Always passes if we get here
 
 def test_model_creation():
     """Test model creation."""
@@ -137,11 +151,11 @@ def test_model_creation():
         params = sum(p.numel() for p in model.get_model().parameters())
         print(f"✓ Model has {params:,} parameters")
         
-        return True
+        assert model is not None
+        assert params > 0
     
     except Exception as e:
-        print(f"✗ Model creation failed: {e}")
-        return False
+        pytest.fail(f"Model creation failed: {e}")
 
 def test_data_processing():
     """Test data processing pipeline."""
@@ -179,32 +193,44 @@ def test_data_processing():
         
         print("✓ Price parsing working")
         
-        return True
+        assert processor is not None
     
     except Exception as e:
-        print(f"✗ Data processing test failed: {e}")
-        return False
+        pytest.fail(f"Data processing test failed: {e}")
 
-def run_all_tests():
-    """Run all tests."""
+def _run_test(name, test_func, *args):
+    """Run a test function and return True/False/None."""
+    try:
+        test_func(*args)
+        return True
+    except AssertionError as e:
+        return False
+    except pytest.skip.Exception:
+        return None
+    except Exception as e:
+        return None
+
+
+def run_all_tests(db_password=None):
+    """Run all tests.
+    
+    Args:
+        db_password: Optional database password for database connection test
+    """
     print("\n" + "=" * 60)
     print("PYTINK PROJECT - INSTALLATION TEST")
     print("=" * 60 + "\n")
     
     results = {
-        'Imports': test_imports(),
-        'Project Modules': test_module_imports(),
-        'PyTorch': test_pytorch_cuda(),
-        'Model Creation': test_model_creation(),
-        'Data Processing': test_data_processing(),
+        'Imports': _run_test('Imports', test_imports),
+        'Project Modules': _run_test('Project Modules', test_module_imports),
+        'PyTorch': _run_test('PyTorch', test_pytorch_cuda),
+        'Model Creation': _run_test('Model Creation', test_model_creation),
+        'Data Processing': _run_test('Data Processing', test_data_processing),
     }
     
-    # Database test is optional
-    try:
-        results['Database Connection'] = test_database_connection()
-    except Exception as e:
-        print(f"\n⚠ Database test skipped (MySQL may not be running)")
-        results['Database Connection'] = None
+    # Database test is optional - requires password
+    results['Database Connection'] = _run_test('Database Connection', test_database_connection, db_password)
     
     # Summary
     print("\n" + "=" * 60)
@@ -238,5 +264,11 @@ def run_all_tests():
     return all_passed
 
 if __name__ == '__main__':
-    success = run_all_tests()
+    import argparse
+    parser = argparse.ArgumentParser(description='Test installation')
+    parser.add_argument('--db-password', type=str, default=None,
+                        help='Database password for database connection test')
+    args = parser.parse_args()
+    
+    success = run_all_tests(db_password=args.db_password)
     sys.exit(0 if success else 1)

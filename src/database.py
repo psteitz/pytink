@@ -99,6 +99,28 @@ class StockDatabase:
         finally:
             cursor.close()
     
+    def get_stocks_by_tickers(self, tickers: List[str]) -> List[Dict]:
+        """Retrieve stocks by their ticker symbols.
+        
+        Args:
+            tickers: List of ticker symbols to look up
+        
+        Returns:
+            List of stocks matching the provided tickers
+        """
+        if not tickers:
+            return []
+        
+        cursor = self.connection.cursor(dictionary=True)
+        try:
+            placeholders = ','.join(['%s'] * len(tickers))
+            query = f"SELECT id, ticker, name FROM stocks WHERE ticker IN ({placeholders})"
+            cursor.execute(query, tuple(tickers))
+            stocks = cursor.fetchall()
+            return stocks
+        finally:
+            cursor.close()
+
     def get_quotes_for_stock(
         self,
         stock_id: int,

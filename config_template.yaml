@@ -12,8 +12,13 @@ database:
 # Data Processing Configuration
 data:
   num_stocks: 20
-  interval_minutes: 15
-  sequence_length: 8
+  interval_minutes: 30
+  sequence_length: 16
+  # Optional: specify exact tickers to use (overrides num_stocks if provided)
+  # tickers:
+  #   - AAPL
+  #   - GOOGL
+  #   - MSFT
 
 # Model Configuration
 model:
@@ -26,13 +31,13 @@ model:
 training:
   batch_size: 64
   num_epochs: 10
-  learning_rate: 0.0001
+  learning_rate: 0.00001
   weight_decay: 0
   warmup_steps: 100
 
 # Output Configuration
 output:
-  save_model: false
+  save_model: true
   save_vocabulary: false
   save_predictions: false
   plot_results: false

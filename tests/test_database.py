@@ -108,6 +108,80 @@ class TestStockDatabase:
         
         assert isinstance(quotes, dict)
         assert 1 in quotes
+    
+    @patch('database.mysql.connector.connect')
+    def test_get_stocks_by_tickers_returns_matching_stocks(self, mock_connect, db_config):
+        """Test get_stocks_by_tickers returns stocks matching the provided tickers."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [
+            {'id': 1, 'ticker': 'AAPL', 'name': 'Apple Inc.'},
+            {'id': 2, 'ticker': 'GOOGL', 'name': 'Alphabet Inc.'}
+        ]
+        mock_connect.return_value = mock_connection
+        
+        db = StockDatabase(**db_config)
+        db.connect()
+        
+        stocks = db.get_stocks_by_tickers(['AAPL', 'GOOGL'])
+        
+        assert isinstance(stocks, list)
+        assert len(stocks) == 2
+        assert stocks[0]['ticker'] == 'AAPL'
+        assert stocks[1]['ticker'] == 'GOOGL'
+    
+    @patch('database.mysql.connector.connect')
+    def test_get_stocks_by_tickers_returns_empty_for_empty_list(self, mock_connect, db_config):
+        """Test get_stocks_by_tickers returns empty list when given empty list."""
+        mock_connection = MagicMock()
+        mock_connect.return_value = mock_connection
+        
+        db = StockDatabase(**db_config)
+        db.connect()
+        
+        stocks = db.get_stocks_by_tickers([])
+        
+        assert isinstance(stocks, list)
+        assert len(stocks) == 0
+    
+    @patch('database.mysql.connector.connect')
+    def test_get_stocks_by_tickers_partial_match(self, mock_connect, db_config):
+        """Test get_stocks_by_tickers returns only stocks found in database."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        # Only AAPL is found, INVALID_TICKER is not in database
+        mock_cursor.fetchall.return_value = [
+            {'id': 1, 'ticker': 'AAPL', 'name': 'Apple Inc.'}
+        ]
+        mock_connect.return_value = mock_connection
+        
+        db = StockDatabase(**db_config)
+        db.connect()
+        
+        stocks = db.get_stocks_by_tickers(['AAPL', 'INVALID_TICKER'])
+        
+        assert isinstance(stocks, list)
+        assert len(stocks) == 1
+        assert stocks[0]['ticker'] == 'AAPL'
+    
+    @patch('database.mysql.connector.connect')
+    def test_get_stocks_by_tickers_none_found(self, mock_connect, db_config):
+        """Test get_stocks_by_tickers returns empty list when no tickers found."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = []
+        mock_connect.return_value = mock_connection
+        
+        db = StockDatabase(**db_config)
+        db.connect()
+        
+        stocks = db.get_stocks_by_tickers(['INVALID1', 'INVALID2'])
+        
+        assert isinstance(stocks, list)
+        assert len(stocks) == 0
 
 
 class TestDatabaseWithoutConnection:

@@ -223,7 +223,6 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
         # Build config in the same structure as config_template.yaml
         training_config = {
             'data': {
-                'num_stocks': len(tickers) if tickers else args.stocks if args else 20,
                 'interval_minutes': args.interval if args else 15,
                 'sequence_length': args.sequence_length if args else 8,
             },
@@ -237,14 +236,17 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
             },
         }
         
+        # Add tickers list if available, otherwise num_stocks
+        if tickers:
+            training_config['data']['tickers'] = sorted(tickers)
+        else:
+            training_config['data']['num_stocks'] = args.stocks if args else 20
+        
         # Add delta_ranges if custom values were used
         if delta_values is not None:
             training_config['delta_ranges'] = delta_values
         elif config and 'delta_ranges' in config:
             training_config['delta_ranges'] = config['delta_ranges']
-        
-        # Add tickers as a comment-like field for reference
-        training_config['_tickers'] = sorted(tickers) if tickers else []
         
         if yaml is not None:
             with open(config_path, 'w') as f:
@@ -371,6 +373,7 @@ def main():
         args.stocks = config.get('data', {}).get('num_stocks', args.stocks)
         args.interval = config.get('data', {}).get('interval_minutes', args.interval)
         args.sequence_length = config.get('data', {}).get('sequence_length', args.sequence_length)
+        args.tickers = config.get('data', {}).get('tickers', None)
         
         # Training config
         args.batch_size = config.get('training', {}).get('batch_size', args.batch_size)
@@ -387,6 +390,7 @@ def main():
         args.save_vocabulary = False
         args.save_predictions = False
         args.plot_results = False
+        args.tickers = None
     
     device = "cuda" if torch.cuda.is_available() else "cpu"
     logger.info(f"Using device: {device}")
@@ -408,9 +412,21 @@ def main():
     db = StockDatabase(password=args.db_password)
     db.connect()
     
-    # 2. Get random stocks with at least 100,000 quotes
-    logger.info(f"Fetching {args.stocks} random stocks with at least 100,000 quotes...")
-    random_stocks = db.get_random_stocks(count=args.stocks, min_quotes=100000)
+    # 2. Get stocks - either by tickers list or randomly
+    if args.tickers:
+        logger.info(f"Fetching specified tickers: {args.tickers}")
+        random_stocks = db.get_stocks_by_tickers(args.tickers)
+        
+        # Check for missing tickers - exit with error if any not found
+        found_tickers = {stock['ticker'] for stock in random_stocks}
+        missing_tickers = [t for t in args.tickers if t not in found_tickers]
+        if missing_tickers:
+            logger.error(f"Tickers not found in database: {missing_tickers}")
+            db.close()
+            sys.exit(1)
+    else:
+        logger.info(f"Fetching {args.stocks} random stocks with at least 100,000 quotes...")
+        random_stocks = db.get_random_stocks(count=args.stocks, min_quotes=100000)
     
     # Remove duplicate stocks by ID (keep first occurrence)
     seen_ids = set()
@@ -640,6 +656,9 @@ def main():
     logger.info(f"Final Perplexity: {final_perplexity:.4f}")
     logger.info("="*60)
     
+    # Get tickers for confusion matrix and model filename
+    tickers = [stock['ticker'] for stock in random_stocks]
+    
     # Generate per-stock confusion matrices
     logger.info("")
     logger.info("="*60)
@@ -750,9 +769,6 @@ def main():
     # Create models directory for saved models (at same level as logs)
     models_dir = Path(__file__).parent / 'models'
     models_dir.mkdir(exist_ok=True)
-    
-    # Get tickers for model filename
-    tickers = [stock['ticker'] for stock in random_stocks]
     
     # Save artifacts if requested
     if args.save_model:
