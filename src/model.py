@@ -108,6 +108,7 @@ class StockTransformerModel:
         """
         self.vocab_size = vocab_size
         self.device = device
+        self.class_weights = None  # Will be set via set_class_weights()
         
         # Create custom configuration for GPT-2 style model
         config = AutoConfig.from_pretrained("gpt2")
@@ -153,7 +154,7 @@ class StockTransformerModel:
             # Use only the last token's logits for next-token prediction
             # Shift logits: we want to predict the token after the sequence
             last_logits = logits[:, -1, :]  # shape: (batch_size, vocab_size)
-            loss_fn = nn.CrossEntropyLoss()
+            loss_fn = nn.CrossEntropyLoss(weight=self.class_weights)
             loss = loss_fn(last_logits, labels)
         
         return {
@@ -194,3 +195,13 @@ class StockTransformerModel:
     def eval(self):
         """Set model to evaluation mode."""
         self.model.eval()
+    
+    def set_class_weights(self, weights: torch.Tensor):
+        """Set class weights for weighted cross-entropy loss.
+        
+        Args:
+            weights: Tensor of shape (vocab_size,) with weight for each class.
+                     Higher weights = more penalty for misclassifying that class.
+        """
+        self.class_weights = weights.to(self.device)
+        logger.info(f"Set class weights (min={weights.min():.4f}, max={weights.max():.4f}, mean={weights.mean():.4f})")

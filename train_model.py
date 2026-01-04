@@ -420,6 +420,7 @@ def main():
     args.learning_rate = get_config_value(args.learning_rate, 'training', 'learning_rate', 'training', 'learning_rate', 0.0003)
     args.weight_decay = get_config_value(args.weight_decay, 'training', 'weight_decay', 'training', 'weight_decay', 0.01)
     args.early_stopping_patience = get_config_value(args.early_stopping_patience, 'training', 'early_stopping_patience', 'training', 'early_stopping_patience', 5)
+    args.use_class_weights = user_config.get('training', {}).get('use_class_weights', default_training.get('use_class_weights', True))
     
     # Output config
     args.save_model = get_config_value(args.save_model, 'output', 'save_model', 'output', 'save_model', True)
@@ -626,6 +627,50 @@ def main():
         device=device
     )
     
+    # Compute class weights from training data if enabled
+    if args.use_class_weights:
+        logger.info("Computing class weights from training data...")
+        # Count class frequencies in training set
+        class_counts = torch.zeros(len(vocab))
+        for idx in range(len(train_dataset)):
+            _, label = train_dataset[idx]
+            class_counts[label.item()] += 1
+        
+        # Compute inverse frequency weights only for classes with samples
+        # Use log(1/frequency + 1) for moderate weighting - less extreme than 1/frequency
+        total_samples = class_counts.sum()
+        num_classes_with_samples = (class_counts > 0).sum().item()
+        
+        class_weights = torch.zeros(len(vocab))
+        mask = class_counts > 0
+        
+        # Log-based weighting: log(1/freq + 1) gives smoother weights
+        # Ratio between max and min weights is typically ~10x instead of ~1000x
+        frequencies = class_counts[mask] / total_samples
+        class_weights[mask] = torch.log(1.0 / frequencies + 1)
+        
+        # Normalize so mean of non-zero weights is 1.0
+        non_zero_mean = class_weights[mask].mean()
+        if non_zero_mean > 0:
+            class_weights[mask] = class_weights[mask] / non_zero_mean
+        
+        # Log class distribution and weights (show most common classes)
+        logger.info(f"Class distribution in training set ({num_classes_with_samples} classes with samples):")
+        # Sort by count descending to show most common classes
+        counts_with_idx = [(int(class_counts[idx].item()), word, idx) for word, idx in vocab.items() if class_counts[idx] > 0]
+        counts_with_idx.sort(reverse=True)
+        for count, word, idx in counts_with_idx[:20]:
+            weight = class_weights[idx].item()
+            pct = count / total_samples.item() * 100 if total_samples > 0 else 0
+            logger.info(f"  Class {idx} ('{word}'): {count:6} samples ({pct:5.2f}%), weight={weight:.4f}")
+        if num_classes_with_samples > 20:
+            logger.info(f"  ... and {num_classes_with_samples - 20} more classes with samples")
+        
+        logger.info(f"Weight range: min={class_weights[mask].min():.4f}, max={class_weights[mask].max():.4f}")
+        model.set_class_weights(class_weights)
+    else:
+        logger.info("Class weighting disabled")
+    
     # 9. Training
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=custom_collate_fn)
     eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=custom_collate_fn)
@@ -785,6 +830,10 @@ def main():
         if not actual_letters:
             continue
         
+        # Debug: Show distribution of actual letters for this stock
+        actual_dist = Counter(actual_letters)
+        logger.info(f"  Actual letter distribution: {dict(sorted(actual_dist.items()))}")
+        
         # Build confusion matrix
         # Rows = actual, Columns = predicted
         confusion = {actual: {pred: 0 for pred in delta_letters} for actual in delta_letters}
@@ -792,6 +841,8 @@ def main():
         for actual, predicted in zip(actual_letters, predicted_letters):
             if actual in confusion and predicted in delta_letters:
                 confusion[actual][predicted] += 1
+            elif actual not in confusion:
+                logger.warning(f"  Unknown actual letter '{actual}' not in delta_letters {delta_letters}")
         
         # Calculate per-stock accuracy
         correct = sum(1 for a, p in zip(actual_letters, predicted_letters) if a == p)
