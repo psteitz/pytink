@@ -12,7 +12,8 @@ pytink/
 ├── requirements.txt                    # Python package dependencies
 ├── config_template.py                  # Configuration templates
 ├── test_installation.py                # Installation verification script
-├── train_model.py                      # Command-line interface
+├── train_model.py                      # Command-line interface for training
+├── inference.py                        # Evaluate trained models on recent data
 │
 ├── src/                                # Core source code
 │   ├── __init__.py                     # Package initialization
@@ -25,7 +26,8 @@ pytink/
     ├── test_database.py                # Database tests
     ├── test_processor.py               # Processor tests
     ├── test_model.py                   # Model tests
-    └── test_integration.py             # Integration tests
+    ├── test_integration.py             # Integration tests
+    └── test_inference.py               # Inference tests
 
 
 FILE DESCRIPTIONS
@@ -127,18 +129,31 @@ tests/test_integration.py
   - YAML configuration, file I/O
   - ~370 lines
 
-Total: 68 tests, all using pytest
+tests/test_inference.py
+  - 13 unit tests for inference module
+  - Model loading, date filtering, evaluation
+  - ~350 lines
+
+Total: ~90 tests, all using pytest
 
 
 EXECUTABLE SCRIPTS
 ==================
 
 train_model.py
-  - Command-line interface
+  - Command-line interface for training
   - Full pipeline execution
   - Configurable via command arguments
   - Progress logging
   - ~200 lines
+
+inference.py
+  - Evaluate trained models on recent data
+  - Loads model from saved directory
+  - Filters data to specified time range
+  - Reports accuracy, loss, perplexity
+  - Per-stock confusion matrices
+  - ~250 lines
 
 test_installation.py
   - Installation verification

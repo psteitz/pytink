@@ -57,7 +57,8 @@ pytink/
 ├── requirements.txt          ← Install with: pip install -r requirements.txt
 ├── config_template.py        ← Configuration templates
 ├── test_installation.py      ← Verify installation
-├── train_model.py            ← CLI interface
+├── train_model.py            ← Training CLI interface
+├── inference.py              ← Evaluate trained models
 │
 ├── src/                      ← Core Python modules
 │   ├── database.py           ← MySQL interface
@@ -70,7 +71,8 @@ pytink/
     ├── test_database.py
     ├── test_processor.py
     ├── test_model.py
-    └── test_integration.py
+    ├── test_integration.py
+    └── test_inference.py
 ```
 
 ---
@@ -82,6 +84,11 @@ pytink/
 cd ~/pytink
 pip install -r requirements.txt
 python train_model.py --db-password YOUR_PASSWORD
+```
+
+### Evaluate a Trained Model
+```bash
+python inference.py --db-password YOUR_PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
 ```
 
 ### Verify Installation First

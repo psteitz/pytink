@@ -55,11 +55,11 @@ Trains a transformer model to predict stock price movements by:
 📦 WHAT YOU GET:
 
 ✓ 5 Python modules        (1,103 lines of code)
-✓ 2 Executable scripts    (CLI + verification)
-✓ 4 Test modules          (68 tests, pytest)
+✓ 3 Executable scripts    (train, inference, verification)
+✓ 5 Test modules          (~90 tests, pytest)
 ✓ 6 Documentation files   (1,584 lines)
 ✓ Configuration files     (setup & templates)
-✓ Total: 20 files, ready to use
+✓ Total: 21 files, ready to use
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -126,7 +126,10 @@ Q: Can I use different stocks?
 A: Yes! Modify database.py or use command-line args
 
 Q: Can I save the trained model?
-A: Yes! See EXAMPLES.md Example 10
+A: Yes! Use --save-model flag with train_model.py
+
+Q: How do I evaluate a trained model?
+A: Use inference.py --model-dir models/TICKER-LIST/TIMESTAMP/
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -138,6 +141,7 @@ Essential files (must have):
   ✓ src/processor.py
   ✓ src/model.py
   ✓ train_model.py
+  ✓ inference.py
 
 Important files (should read):
   ✓ INDEX.md

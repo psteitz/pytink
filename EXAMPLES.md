@@ -370,4 +370,61 @@ sequence_length = 8  # was 16
 
 ---
 
+## Example 12: Evaluating a Trained Model
+
+After training a model with `save_model: true`, evaluate it on recent data:
+
+**Basic inference:**
+```bash
+# Evaluate on last 3 months of data (default)
+python inference.py --db-password YOUR_PASSWORD \
+    --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/
+```
+
+**Custom time range:**
+```bash
+# Evaluate on last 6 months
+python inference.py --db-password YOUR_PASSWORD \
+    --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ \
+    --months 6
+```
+
+**With custom batch size:**
+```bash
+python inference.py --db-password YOUR_PASSWORD \
+    --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ \
+    --months 3 --batch-size 128
+```
+
+**Output example:**
+```
+Loading model from models/AAPL-GOOGL-MSFT/20260101_120000/
+Stocks: AAPL, GOOGL, MSFT
+Evaluation period: last 3 months (2025-10-01 to 2026-01-02)
+
+Results:
+  Accuracy: 45.23%
+  Loss: 1.856
+  Perplexity: 6.40
+  Total samples: 1,234
+
+Per-stock confusion matrix...
+```
+
+**Using inference programmatically:**
+```python
+from inference import load_model_config, load_model, evaluate_model
+
+# Load saved model
+model_dir = 'models/AAPL-GOOGL-MSFT/20260101_120000/'
+config = load_model_config(model_dir)
+model, symbol_to_id = load_model(model_dir, config)
+
+# Evaluate on your own data
+# ... fetch and process quotes ...
+# results = evaluate_model(model, dataset, symbol_to_id)
+```
+
+---
+
 For more information, see README.md, QUICKSTART.md, and PROJECT_SUMMARY.md

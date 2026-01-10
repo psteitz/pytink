@@ -142,12 +142,15 @@ Pass via command line arguments:
 ## Next Steps
 
 1. **Experiment with hyperparameters** - try different learning rates, model sizes
-2. **Analyze predictions** - examine what patterns the model learns
-3. **Add more stocks** - how does vocabulary size change?
-4. **Try different intervals** - hourly or daily predictions
-5. **Implement predictions** - use trained model to predict future prices
+2. **Evaluate trained models** - use `inference.py` to test on recent data:
+   ```bash
+   python inference.py --db-password YOUR_PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
+   ```
+3. **Analyze predictions** - examine what patterns the model learns
+4. **Add more stocks** - how does vocabulary size change?
+5. **Try different intervals** - hourly or daily predictions
 6. **Visualize results** - plot training curves, word distributions
-7. **Save/load models** - persist trained models for reuse
+7. **Save/load models** - models are saved to `models/` directory
 
 ## Files Generated
 

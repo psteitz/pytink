@@ -48,17 +48,19 @@ A "word" like `acgaeb` with 6 stocks means:
 
 ```
 pytink/
-├── train_model.py           # Main CLI entry point
+├── train_model.py           # Main CLI for training models
+├── inference.py             # Evaluate trained models on recent data
 ├── src/
 │   ├── database.py          # MySQL database interface
 │   ├── processor.py         # Price processing and delta encoding
 │   ├── model.py             # PyTorch model and dataset classes
 │   └── analysis.py          # Visualization utilities
-├── tests/                   # pytest test suite (76 tests)
-│   ├── test_database.py     # Database tests (7 tests)
-│   ├── test_processor.py    # Processor tests (35 tests)
-│   ├── test_model.py        # Model tests (22 tests)
-│   └── test_integration.py  # Integration tests (12 tests)
+├── tests/                   # pytest test suite
+│   ├── test_database.py     # Database tests
+│   ├── test_processor.py    # Processor tests
+│   ├── test_model.py        # Model tests
+│   ├── test_integration.py  # Integration tests
+│   └── test_inference.py    # Inference tests
 ├── models/                  # Saved model files (git-ignored)
 ├── logs/                    # Training logs (git-ignored)
 ├── config_template.yaml     # Configuration template
@@ -221,6 +223,24 @@ The transformer model uses:
 `StockWordDataset` class:
 - PyTorch Dataset for word sequences
 - Returns (input_ids, label) pairs for training
+
+### `inference.py`
+
+Evaluate trained models on recent data:
+
+```bash
+# Evaluate a trained model on the last 3 months of data
+python inference.py --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/
+
+# Evaluate on the last 6 months
+python inference.py --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ --months 6
+```
+
+The script:
+- Loads model configuration and weights from the specified directory
+- Fetches quotes for the model's tickers from the database
+- Evaluates on data from the last N months (default: 3)
+- Reports overall accuracy, loss, perplexity, and per-stock confusion matrices
 
 ## Performance Metrics
 
