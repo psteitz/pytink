@@ -2,7 +2,8 @@
 
 ## Welcome! 👋
 
-This is a complete, production-ready project for training a transformer model to predict stock price movements using encoded delta sequences.
+This is a transformer model to predict stock price movements using sequences of changes in a list of stocks.
+The alphabet encodes changes. The default model uses configuration in [config_template.yaml](config_template.yaml).
 
 ---
 
@@ -25,7 +26,7 @@ python train_model.py --db-password YOUR_PASSWORD   # Run with defaults
 ### **Looking for specific information?**
 - **Full technical docs**: See [README.md](README.md)
 - **File structure**: See [STRUCTURE.txt](STRUCTURE.txt)
-- **Configuration**: See [config_template.py](config_template.py)
+- **Configuration**: See [config_template.yaml](config_template.yaml)
 - **Source code**: See [src/](src/) directory
 
 ---
