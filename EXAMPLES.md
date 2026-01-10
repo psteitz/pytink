@@ -31,7 +31,7 @@ python train_model.py --db-password YOUR_PASSWORD
 # Use specific parameters
 python train_model.py \
     --db-password YOUR_PASSWORD \
-    --stocks 15 \
+    --num-stocks 15 \
     --interval 30 \
     --epochs 20 \
     --batch-size 16 \
@@ -241,13 +241,13 @@ dataset = StockWordDataset(words, vocab)
 # Run multiple experiments with different configurations
 
 echo "=== Quick Test (Small model, few epochs) ==="
-python train_model.py --db-password YOUR_PASSWORD --stocks 5 --epochs 2
+python train_model.py --db-password YOUR_PASSWORD --num-stocks 5 --epochs 2
 
 echo "=== Standard Configuration ==="
-python train_model.py --db-password YOUR_PASSWORD --stocks 10 --epochs 10
+python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --epochs 10
 
 echo "=== Large Scale (More stocks, longer training) ==="
-python train_model.py --db-password YOUR_PASSWORD --stocks 20 --epochs 20
+python train_model.py --db-password YOUR_PASSWORD --num-stocks 20 --epochs 20
 
 echo "=== Fine-tuned Learning ==="
 python train_model.py --db-password YOUR_PASSWORD --learning-rate 2e-4 --batch-size 16

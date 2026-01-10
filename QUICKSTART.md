@@ -27,7 +27,7 @@ Or customize parameters:
 ```bash
 python train_model.py \
   --db-password YOUR_PASSWORD \
-  --stocks 50 \
+  --num-stocks 50 \
   --interval 30 \
   --sequence-length 8 \
   --batch-size 128 \
@@ -106,7 +106,7 @@ Pass via command line arguments:
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | --db-password | (required) | Database password |
-| --stocks | 20 | Number of random stocks to analyze |
+| --num-stocks | 20 | Number of random stocks to analyze |
 | --interval | 30 | Minutes between consecutive "words" |
 | --sequence-length | 16 | Number of words for model input |
 | --batch-size | 64 | Training batch size |

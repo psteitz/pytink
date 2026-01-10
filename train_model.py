@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Command-line script to run stock price prediction analysis.
-Usage: python train_model.py --stocks 20 --interval 15 --epochs 10 --batch-size 64 --sequence-length 8
+Usage: python train_model.py --num-stocks 20 --interval 15 --epochs 10 --batch-size 64 --sequence-length 8
 """
 import argparse
 import sys
@@ -262,7 +262,7 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
         if tickers:
             training_config['data']['tickers'] = sorted(tickers)
         else:
-            training_config['data']['num_stocks'] = args.stocks if args else 20
+            training_config['data']['num_stocks'] = args.num_stocks if args else 20
         
         # Add delta_ranges if custom values were used
         if delta_values is not None:
@@ -379,7 +379,9 @@ def main():
     parser = argparse.ArgumentParser(description='Stock Price Prediction Model')
     parser.add_argument('--db-password', type=str, required=True, help='Database password (required)')
     parser.add_argument('--config', type=str, default=None, help='Path to YAML config file')
-    parser.add_argument('--stocks', type=int, default=None, help='Number of random stocks to use')
+    parser.add_argument('--num-stocks', type=int, default=None, help='Number of random stocks to use')
+    parser.add_argument('--tickers', type=str, default=None, 
+                        help='JSON list of ticker symbols, e.g. \'["BAC", "AXP", "MSFT"]\' (overrides --num-stocks)')
     parser.add_argument('--interval', type=int, default=None, help='Time interval in minutes')
     parser.add_argument('--epochs', type=int, default=None, help='Number of training epochs')
     parser.add_argument('--early-stopping-patience', type=int, default=None, help='Early stopping patience (0 to disable)')
@@ -409,10 +411,26 @@ def main():
         return fallback
     
     # Data config
-    args.stocks = get_config_value(args.stocks, 'data', 'num_stocks', 'data', 'num_stocks', 10)
+    args.num_stocks = get_config_value(args.num_stocks, 'data', 'num_stocks', 'data', 'num_stocks', 10)
     args.interval = get_config_value(args.interval, 'data', 'interval_minutes', 'data', 'interval_minutes', 30)
     args.sequence_length = get_config_value(args.sequence_length, 'data', 'sequence_length', 'data', 'sequence_length', 32)
-    args.tickers = user_config.get('data', {}).get('tickers', default_data.get('tickers', None))
+    
+    # Parse tickers from CLI (JSON format) or config file
+    if args.tickers is not None:
+        try:
+            args.tickers = json.loads(args.tickers)
+            if not isinstance(args.tickers, list):
+                logger.error("--tickers must be a JSON list, e.g. '[\"BAC\", \"AXP\"]'")
+                sys.exit(1)
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse --tickers as JSON: {e}")
+            sys.exit(1)
+    else:
+        args.tickers = user_config.get('data', {}).get('tickers', default_data.get('tickers', None))
+    
+    # Treat empty list as None (use random stocks)
+    if args.tickers is not None and len(args.tickers) == 0:
+        args.tickers = None
     
     # Training config
     args.batch_size = get_config_value(args.batch_size, 'training', 'batch_size', 'training', 'batch_size', 64)
@@ -449,7 +467,7 @@ def main():
     logger.info("="*60)
     logger.info("RUN PARAMETERS")
     logger.info("="*60)
-    logger.info(f"Number of stocks: {args.stocks}")
+    logger.info(f"Number of stocks: {args.num_stocks}")
     logger.info(f"Context window sequence length: {args.sequence_length}")
     logger.info(f"Learning rate: {args.learning_rate}")
     logger.info(f"Number of epochs: {args.epochs}")
@@ -475,8 +493,8 @@ def main():
             db.close()
             sys.exit(1)
     else:
-        logger.info(f"Fetching {args.stocks} random stocks with at least 100,000 quotes...")
-        random_stocks = db.get_random_stocks(count=args.stocks, min_quotes=100000)
+        logger.info(f"Fetching {args.num_stocks} random stocks with at least 100,000 quotes...")
+        random_stocks = db.get_random_stocks(count=args.num_stocks, min_quotes=100000)
     
     # Remove duplicate stocks by ID (keep first occurrence)
     seen_ids = set()
@@ -492,8 +510,8 @@ def main():
     random_stocks = unique_stocks
     stock_ids = [stock['id'] for stock in random_stocks]
     
-    if len(random_stocks) < args.stocks:
-        logger.warning(f"Only found {len(random_stocks)} stocks with >= 100,000 quotes (requested {args.stocks})")
+    if len(random_stocks) < args.num_stocks:
+        logger.warning(f"Only found {len(random_stocks)} stocks with >= 100,000 quotes (requested {args.num_stocks})")
     
     # Update missing stock names from yFinance
     logger.info("Updating missing stock names...")

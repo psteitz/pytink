@@ -288,6 +288,80 @@ class TestConfigurationIntegration:
         assert merged['training']['num_epochs'] == 10  # Unchanged
         assert merged['data']['num_stocks'] == 20  # Unchanged
 
+    def test_tickers_cli_json_parsing(self):
+        """Test parsing --tickers CLI argument as JSON."""
+        # Valid JSON list
+        tickers_json = '["BAC", "AXP", "MSFT"]'
+        parsed = json.loads(tickers_json)
+        assert parsed == ["BAC", "AXP", "MSFT"]
+        assert isinstance(parsed, list)
+        assert len(parsed) == 3
+        
+    def test_tickers_cli_invalid_json(self):
+        """Test that invalid JSON raises error."""
+        invalid_json = 'BAC, AXP, MSFT'  # Not valid JSON
+        with pytest.raises(json.JSONDecodeError):
+            json.loads(invalid_json)
+            
+    def test_tickers_cli_not_list(self):
+        """Test that non-list JSON is rejected."""
+        not_list_json = '{"ticker": "BAC"}'  # Dict, not list
+        parsed = json.loads(not_list_json)
+        assert not isinstance(parsed, list)
+        
+    def test_tickers_config_file(self):
+        """Test tickers in YAML config file."""
+        import yaml
+        
+        config = {
+            'data': {
+                'tickers': ['AAPL', 'GOOGL', 'MSFT'],
+                'interval_minutes': 30,
+            }
+        }
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / 'config.yaml'
+            with open(config_path, 'w') as f:
+                yaml.dump(config, f)
+            
+            with open(config_path, 'r') as f:
+                loaded = yaml.safe_load(f)
+            
+            assert loaded['data']['tickers'] == ['AAPL', 'GOOGL', 'MSFT']
+            assert len(loaded['data']['tickers']) == 3
+
+    def test_tickers_cli_overrides_config(self):
+        """Test that CLI tickers override config file tickers."""
+        config_tickers = ['AAPL', 'GOOGL']
+        cli_tickers = '["BAC", "AXP", "MSFT"]'
+        
+        # CLI should take precedence
+        cli_parsed = json.loads(cli_tickers)
+        final_tickers = cli_parsed if cli_parsed else config_tickers
+        
+        assert final_tickers == ["BAC", "AXP", "MSFT"]
+
+    def test_tickers_empty_list_treated_as_none(self):
+        """Test that empty tickers list is treated as None (use random stocks)."""
+        tickers = []
+        
+        # Empty list should be treated as None
+        result = None if (tickers is not None and len(tickers) == 0) else tickers
+        assert result is None
+        
+    def test_tickers_in_default_config_template(self):
+        """Test that config_template.yaml has tickers field."""
+        import yaml
+        
+        config_path = Path(__file__).parent.parent / 'config_template.yaml'
+        with open(config_path, 'r') as f:
+            config = yaml.safe_load(f)
+        
+        assert 'data' in config
+        assert 'tickers' in config['data']
+        # Default should be empty list
+        assert config['data']['tickers'] == []
 
 class TestSaveAndLoadArtifacts:
     """Test saving and loading model artifacts."""

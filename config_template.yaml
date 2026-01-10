@@ -11,10 +11,12 @@ database:
 
 # Data Processing Configuration
 data:
-  num_stocks: 10
+  num_stocks: 10 # Number of randomly selected stocks for the model, unless tickers are specified
   interval_minutes: 30
   sequence_length: 32
   # Optional: specify exact tickers to use (overrides num_stocks if provided)
+  tickers: []  # Empty list means use random stocks; populate to use specific tickers
+  # Example with specific tickers:
   # tickers:
   #   - AAPL
   #   - GOOGL

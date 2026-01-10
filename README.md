@@ -117,7 +117,7 @@ python train_model.py -h
 python train_model.py --db-password YOUR_PASSWORD
 
 # Custom configuration
-python train_model.py --db-password YOUR_PASSWORD --stocks 10 --epochs 5 --interval 15
+python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --epochs 5 --interval 15
 ```
 
 ## Usage
@@ -127,7 +127,7 @@ python train_model.py --db-password YOUR_PASSWORD --stocks 10 --epochs 5 --inter
 Run the model training script:
 
 ```bash
-python train_model.py --db-password YOUR_PASSWORD --stocks 10 --interval 15 --sequence-length 8 --batch-size 64
+python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --interval 15 --sequence-length 8 --batch-size 64
 ```
 
 The script performs the following workflow:
@@ -157,7 +157,7 @@ Parameters can be adjusted via command line or `config_template.yaml`:
 
 - **--db-password**: Database password (required)
 - **--config**: Path to YAML configuration file
-- **--stocks**: Number of stocks to analyze (default: 20)
+- **--num-stocks**: Number of stocks to analyze (default: 20)
 - **--interval**: Price sampling interval in minutes (default: 30)
 - **--sequence-length**: Context window for model input (default: 16)
 - **--batch-size**: Training batch size (default: 64)
