@@ -304,6 +304,73 @@ class TestMarketHours:
         # Same day at 3:30 PM - still open
         dt = datetime(2024, 1, 2, 15, 30, 0)
         assert processor._is_market_open(dt) is True
+
+
+class TestCustomDeltaValues:
+    """Test custom delta values configuration."""
+    
+    def test_custom_delta_values_initialization(self):
+        """Test processor initializes with custom delta values."""
+        custom_deltas = [-0.02, -0.01, 0.0, 0.01, 0.02]
+        processor = PriceProcessor(delta_values=custom_deltas)
+        
+        assert processor.delta_values == sorted(custom_deltas)
+        assert len(processor.delta_to_char) == 5
+        assert len(processor.char_to_delta) == 5
+    
+    def test_custom_delta_values_symbol_mapping(self):
+        """Test that custom delta values map to correct symbols."""
+        custom_deltas = [-0.02, 0.0, 0.02]
+        processor = PriceProcessor(delta_values=custom_deltas)
+        
+        # Should use letters a, b, c
+        assert processor.delta_to_symbol(-0.02) == 'a'
+        assert processor.delta_to_symbol(0.0) == 'b'
+        assert processor.delta_to_symbol(0.02) == 'c'
+    
+    def test_custom_delta_values_nearest_neighbor(self):
+        """Test nearest neighbor quantization with custom deltas."""
+        custom_deltas = [-0.02, 0.0, 0.02]
+        processor = PriceProcessor(delta_values=custom_deltas)
+        
+        # 0.015 is closer to 0.02 than 0.0
+        assert processor.delta_to_symbol(0.015) == 'c'
+        
+        # -0.005 is closer to 0.0 than -0.02
+        assert processor.delta_to_symbol(-0.005) == 'b'
+    
+    def test_custom_delta_values_roundtrip(self):
+        """Test roundtrip conversion with custom deltas."""
+        custom_deltas = [-0.015, -0.005, 0.0, 0.005, 0.015]
+        processor = PriceProcessor(delta_values=custom_deltas)
+        
+        for delta in sorted(custom_deltas):
+            symbol = processor.delta_to_symbol(delta)
+            recovered_delta = processor.symbol_to_delta(symbol)
+            assert recovered_delta == delta
+    
+    def test_default_delta_values_when_none(self):
+        """Test that default delta values are used when None provided."""
+        processor = PriceProcessor(delta_values=None)
+        
+        assert processor.delta_values == DELTA_VALUES
+        assert len(processor.delta_values) == 7
+    
+    def test_custom_delta_values_unsorted_input(self):
+        """Test that unsorted custom deltas are sorted."""
+        custom_deltas = [0.02, -0.02, 0.0, 0.01, -0.01]
+        processor = PriceProcessor(delta_values=custom_deltas)
+        
+        # Should be sorted
+        assert processor.delta_values == [-0.02, -0.01, 0.0, 0.01, 0.02]
+
+
+class TestMarketHoursExtended:
+    """Additional market hours tests."""
+    
+    @pytest.fixture
+    def processor(self):
+        return PriceProcessor(interval_minutes=1)
     
     def test_is_market_open_at_boundaries(self, processor):
         """Test market open/close boundaries."""

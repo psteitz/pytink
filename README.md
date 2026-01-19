@@ -4,28 +4,29 @@ A transformer-based model that treats stock price movements as a language modeli
 
 ## Motivation
 
-This project explores the question: **what if we treat stock price movements like words in a language?**
+Just as transformer models learn to predict the next word in a sentence by understanding context and patterns, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" is a token encoding simultaneous price changes across multiple stocks over a given time interval.
 
-Just as transformer models learn to predict the next word in a sentence by understanding context and patterns, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" encodes simultaneous price changes across multiple stocks over a given time interval.
-
-Stock prices don't move in isolation. The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form "words" and the transformer model is trained to predict the next word in the sequence.
+Stock prices don't move in isolation. The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form tokens and the transformer model is trained to predict the next token in the sequence.
 
 ## How It Works
 
 1. **Quantize price changes** into discrete symbols (a-g representing -1% to +1%)
-2. **Create "words"** by concatenating symbols for all stocks at each time interval
-3. **Build sequences** of consecutive words (like sentences)
-4. **Train a transformer** to predict the next word given previous words
+2. **Create tokens** by concatenating symbols for all stocks at each time interval
+3. **Build sequences** of consecutive tokens 
+4. **Train a transformer** to predict the next token given previous tokens
 
 The model learns which price movement patterns tend to follow other patterns—essentially learning the "grammar" of market movements.
 
 ## Project Overview
 
-This project trains a transformer model to predict the next sequence of stock price changes ("words") given a history of previous sequences. Stock price changes are encoded as letters (a-g) representing different percentage change ranges.
+This project trains a transformer model to predict the next sequence of stock price changes given a history of previous sequences. Stock price changes are encoded as letters representing different percentage change ranges.
 
 ### Delta Encoding
 
-Price changes are mapped to letters as follows:
+Delta-encoding maps price changes to letters.  For example, a 7-letter encoding could use
+the following mapping:
+
+Price change
 - `a`: -1.0% (-.01)
 - `b`: -0.5% (-.005)
 - `c`: -0.1% (-.001)
@@ -34,9 +35,18 @@ Price changes are mapped to letters as follows:
 - `f`: +0.5% (+.005)
 - `g`: +1.0% (+.01)
 
-### Example
+Actual price changes are mapped to the nearest neighbor from the list above.
 
-A "word" like `acgaeb` with 6 stocks means:
+Note that this makes all changes of magnitude more than 1% map to 'a' or 'g'.
+
+### Tokens
+
+Tokens are formed by concatenating the change encodings for each of the stocks
+in a list of stocks included in a model.
+
+#### Example
+
+The token `acgaeb` means:
 - Stock 1: `a` (-1%)
 - Stock 2: `c` (-0.1%)
 - Stock 3: `g` (+1%)

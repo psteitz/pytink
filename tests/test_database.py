@@ -201,3 +201,67 @@ class TestDatabaseWithoutConnection:
         """Test that StockDatabase raises error when password not provided."""
         with pytest.raises(TypeError):
             StockDatabase()
+
+
+class TestUpdateMissingStockNames:
+    """Test update_missing_stock_names method."""
+    
+    @patch('database.mysql.connector.connect')
+    @patch('database.yf.Ticker')
+    def test_update_missing_stock_names_fetches_from_yfinance(self, mock_ticker, mock_connect):
+        """Test that missing names are fetched from yFinance."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_connection
+        
+        # Stock has no name
+        mock_cursor.fetchone.return_value = {'id': 1, 'ticker': 'AAPL', 'name': None}
+        
+        # Mock yFinance response
+        mock_ticker_instance = MagicMock()
+        mock_ticker_instance.info = {'longName': 'Apple Inc.'}
+        mock_ticker.return_value = mock_ticker_instance
+        
+        db = StockDatabase(password='test')
+        db.connect()
+        db.update_missing_stock_names([1])
+        
+        # Should have called yFinance
+        mock_ticker.assert_called_once_with('AAPL')
+    
+    @patch('database.mysql.connector.connect')
+    @patch('database.yf.Ticker')
+    def test_update_missing_stock_names_skips_existing(self, mock_ticker, mock_connect):
+        """Test that stocks with existing names are skipped."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_connection
+        
+        # Stock already has name
+        mock_cursor.fetchone.return_value = {'id': 1, 'ticker': 'AAPL', 'name': 'Apple Inc.'}
+        
+        db = StockDatabase(password='test')
+        db.connect()
+        db.update_missing_stock_names([1])
+        
+        # Should NOT have called yFinance
+        mock_ticker.assert_not_called()
+    
+    @patch('database.mysql.connector.connect')
+    def test_update_missing_stock_names_handles_not_found(self, mock_connect):
+        """Test handling of stock ID not found in database."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_connect.return_value = mock_connection
+        
+        # Stock not found
+        mock_cursor.fetchone.return_value = None
+        
+        db = StockDatabase(password='test')
+        db.connect()
+        
+        # Should not raise error
+        db.update_missing_stock_names([999])
