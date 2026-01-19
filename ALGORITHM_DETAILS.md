@@ -38,7 +38,7 @@ DATA:
   - num_stocks: Number of random stocks (default: 10)
   - tickers: Specific tickers to use (overrides num_stocks)
   - interval_minutes: Time interval between tokens (default: 30)
-  - sequence_length: Context window size (default: 32)
+  - context_window_size: Context window size (default: 32)
 
 MODEL:
   - hidden_size: Embedding/hidden dimension (default: 128)
@@ -96,7 +96,7 @@ Input:
   - Stock IDs: [10, 23, 45, ...] (configurable via num_stocks or tickers)
   - quotes_dict: {stock_id: [Quote1, Quote2, ...]} sorted by timestamp
   - interval_minutes: configurable (default: 30)
-  - sequence_length: configurable (default: 32)
+  - context_window_size: configurable (default: 32)
 
 Process:
 
@@ -131,7 +131,7 @@ Process:
 5. SEQUENCE GENERATION:
    From tokens list, create training sequences:
    - Each sequence = (input: [token_1, ..., token_n], label: token_{n+1})
-   - sequence_length is configurable (default: 32)
+   - context_window_size is configurable (default: 32)
    - Example: (["token_1", "token_2", ..., "token_32"], "token_33")
 
 Example output for 20 stocks, 15-minute intervals:
@@ -147,23 +147,23 @@ Class: StockTokenDataset
 
 Input:
   - tokens: List[str] of generated tokens
-  - sequence_length: int (configurable, default: 32)
+  - context_window_size: int (configurable, default: 32)
   - vocab: Dict[str, int] mapping tokens to token IDs
 
 Processing:
   1. Convert tokens to token IDs using vocab
   2. Create sliding window sequences:
-     - For i in range(len(tokens) - sequence_length):
-       - input_ids = tokens[i : i + sequence_length]
-       - label_id = tokens[i + sequence_length]
+     - For i in range(len(tokens) - context_window_size):
+       - input_ids = tokens[i : i + context_window_size]
+       - label_id = tokens[i + context_window_size]
        - Store (input_ids, label_id) as training example
 
   3. __getitem__(index):
      - Returns (input_sequence, label) as tensors
-     - input_sequence: shape (sequence_length,) with token IDs
+     - input_sequence: shape (context_window_size,) with token IDs
      - label: scalar tensor with next token ID
 
-Example with 3 tokens, sequence_length=2:
+Example with 3 tokens, context_window_size=2:
   tokens: ["abc", "def", "ghi"]
   vocab: {"abc": 0, "def": 1, "ghi": 2}
   token_ids: [0, 1, 2]
@@ -174,7 +174,7 @@ Example with 3 tokens, sequence_length=2:
   Only 1 example from 3 tokens because:
     Sequence 0: token_ids[0:2]=[0,1], label=token_ids[2]=2 ✓
 
-With 1M tokens and sequence_length=4:
+With 1M tokens and context_window_size=4:
   ~999,996 training examples (each token creates 1 example)
 
 ================================================================================

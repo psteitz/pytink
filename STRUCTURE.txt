@@ -257,7 +257,7 @@ CONFIGURATION PARAMETERS
 Data Processing
   - num_stocks: 5-50 (default: 20)
   - interval_minutes: 1-1440 (default: 30)
-  - sequence_length: 2-32 (default: 16)
+  - context_window_size: 2-32 (default: 16)
 
 Model Architecture
   - vocab_size: Determined by data

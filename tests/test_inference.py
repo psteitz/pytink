@@ -28,7 +28,7 @@ class TestLoadModelConfig:
                 'data': {
                     'tickers': ['AAPL', 'GOOGL'],
                     'interval_minutes': 30,
-                    'sequence_length': 32
+                    'context_window_size': 32
                 },
                 'model': {
                     'hidden_size': 128,
@@ -195,7 +195,7 @@ class TestEvaluateModel:
         words = ['aaa', 'aab', 'aba', 'baa', 'aaa', 'aab']
         vocab = {'aaa': 0, 'aab': 1, 'aba': 2, 'baa': 3}
         
-        dataset = StockWordDataset(words=words, vocab=vocab, sequence_length=2)
+        dataset = StockWordDataset(words=words, vocab=vocab, context_window_size=2)
         data_loader = DataLoader(dataset, batch_size=2, collate_fn=custom_collate_fn)
         
         # Create model
@@ -266,7 +266,7 @@ class TestIntegration:
                 'data': {
                     'tickers': ['AAPL'],
                     'interval_minutes': 30,
-                    'sequence_length': 32
+                    'context_window_size': 32
                 },
                 'delta_ranges': [-0.01, -0.005, 0.0, 0.005, 0.01]
             }

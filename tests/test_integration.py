@@ -112,7 +112,7 @@ class TestIntegrationWorkflow:
             dataset = StockWordDataset(
                 words=words,
                 vocab=vocab,
-                sequence_length=4
+                context_window_size=4
             )
             
             # Dataset should have valid length
@@ -133,13 +133,13 @@ class TestIntegrationWorkflow:
             dataset = StockWordDataset(
                 words=words,
                 vocab=vocab,
-                sequence_length=4
+                context_window_size=4
             )
             
             if len(dataset) > 0:
                 input_ids, labels = dataset[0]
                 
-                # Input should be sequence_length tokens
+                # Input should be context_window_size tokens
                 assert input_ids.shape[0] == 4
                 
                 # Each token should be valid vocab ID
@@ -180,7 +180,7 @@ class TestIntegrationWorkflow:
             dataset = StockWordDataset(
                 words=all_words,
                 vocab=vocab,
-                sequence_length=4
+                context_window_size=4
             )
             
             # Dataset should have valid length
@@ -198,7 +198,7 @@ class TestIntegrationWorkflow:
             dataset = StockWordDataset(
                 words=words,
                 vocab=vocab,
-                sequence_length=4
+                context_window_size=4
             )
             
             # All token IDs should be valid vocab IDs
@@ -232,7 +232,7 @@ class TestConfigurationIntegration:
                 'data': {
                     'num_stocks': 20,
                     'interval_minutes': 30,
-                    'sequence_length': 8
+                    'context_window_size': 8
                 },
                 'model': {
                     'hidden_size': 256,

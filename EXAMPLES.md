@@ -4,6 +4,8 @@ This document provides practical examples of how to use the stock prediction sys
 
 ## Example 1: Command-Line Quick Analysis
 
+Uses random stocks, default quantization, context size
+
 ```bash
 # Run with defaults (20 stocks, 30-min intervals, 10 epochs, batch size 64, sequence length 16)
 python train_model.py --db-password YOUR_PASSWORD
@@ -36,7 +38,7 @@ python train_model.py \
     --epochs 20 \
     --batch-size 16 \
     --learning-rate 5e-4 \
-    --sequence-length 6
+    --context-window-size 6
 
 # Explanation:
 # - 15 stocks instead of 20
@@ -47,7 +49,61 @@ python train_model.py \
 # - Shorter context (6 words instead of default 16)
 ```
 
-## Example 3: Programmatic Usage
+## Example 3: Training with Specific Tickers
+
+Instead of using random stocks, you can specify exactly which tickers to train on.
+
+**Command-line approach:**
+```bash
+# Train on specific tickers (JSON array format)
+python train_model.py \
+    --db-password YOUR_PASSWORD \
+    --tickers '["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]' \
+    --epochs 15
+
+# Output:
+# ✓ Successfully connected to database
+# ✓ Database contains 100 stocks
+# Using 5 specified tickers:
+#   AAPL: Apple Inc (ID: 1)
+#   GOOGL: Alphabet Inc (ID: 12)
+#   MSFT: Microsoft Corp (ID: 15)
+#   AMZN: Amazon.com Inc (ID: 3)
+#   TSLA: Tesla Inc (ID: 42)
+# Generated 4521 words
+# ...
+```
+
+**Config file approach** (`my_tickers.yaml`):
+```yaml
+# Specify exact tickers to use
+tickers:
+  - AAPL
+  - GOOGL
+  - MSFT
+  - AMZN
+  - TSLA
+
+# Other parameters
+data:
+  interval_minutes: 30
+
+training:
+  epochs: 15
+  batch_size: 32
+```
+
+**Run with config:**
+```bash
+python train_model.py --db-password YOUR_PASSWORD --config my_tickers.yaml
+```
+
+**Note:** When `tickers` is specified, `num_stocks` is ignored. The model trains on exactly the tickers you provide. This is useful for:
+- Focusing on a specific sector (e.g., tech stocks)
+- Reproducing experiments with consistent stock sets
+- Building specialized models for particular portfolios
+
+## Example 4: Programmatic Usage
 
 ```python
 import sys
@@ -81,7 +137,7 @@ print(f"Vocabulary size: {unique_count}")
 
 # Create dataset
 vocab = {w: i for i, w in enumerate(sorted(unique_words))}
-dataset = StockWordDataset(words, vocab, sequence_length=4)
+dataset = StockWordDataset(words, vocab, context_window_size=4)
 
 # Initialize model
 model = StockTransformerModel(vocab_size=len(vocab))
@@ -100,7 +156,7 @@ with torch.no_grad():
 db.close()
 ```
 
-## Example 4: Analyzing Word Patterns
+## Example 5: Analyzing Word Patterns
 
 ```python
 from collections import Counter
@@ -124,7 +180,7 @@ print(f"Unique words: {len(word_freq)}")
 print(f"Vocabulary coverage: {len(word_freq) / len(words) * 100:.2f}%")
 ```
 
-## Example 5: Custom Delta Ranges
+## Example 6: Custom Delta Ranges
 
 You can customize the delta encoding ranges by specifying them in a YAML config file.
 
@@ -170,7 +226,7 @@ print(f"3% change → '{symbol}'")  # → 'g' (closest to +2%)
 # e: +0.1%, f: +0.5%, g: +1%
 ```
 
-## Example 6: Model Training with Custom Configuration
+## Example 7: Model Training with Custom Configuration
 
 ```python
 import torch
@@ -212,7 +268,7 @@ for epoch in range(num_epochs):
     print(f"Epoch {epoch+1} Average Loss: {avg_loss:.4f}")
 ```
 
-## Example 7: Evaluate on Specific Stocks
+## Example 8: Evaluate on Specific Stocks
 
 ```python
 # Get quotes for specific tickers
@@ -235,7 +291,7 @@ dataset = StockWordDataset(words, vocab)
 # ... continue with training
 ```
 
-## Example 8: Batch Experiments
+## Example 9: Batch Experiments
 
 ```bash
 # Run multiple experiments with different configurations
@@ -255,7 +311,7 @@ python train_model.py --db-password YOUR_PASSWORD --learning-rate 2e-4 --batch-s
 # Compare results in output logs
 ```
 
-## Example 9: Save and Load Model
+## Example 10: Save and Load Model
 
 ```python
 # After training...
@@ -288,7 +344,7 @@ with torch.no_grad():
     predictions = loaded_model.predict(input_ids)
 ```
 
-## Example 10: Visualize Training Progress
+## Example 11: Visualize Training Progress
 
 ```python
 import matplotlib.pyplot as plt
@@ -346,13 +402,13 @@ for stock_id in stock_ids:
 ```python
 # Check word count
 print(f"Total words: {len(words)}")
-print(f"Sequence length: {sequence_length}")
-print(f"Possible sequences: {len(words) - sequence_length}")
+print(f"Sequence length: {context_window_size}")
+print(f"Possible sequences: {len(words) - context_window_size}")
 
 # Solution: reduce sequence length if needed
-if len(words) - sequence_length < 100:
-    sequence_length = max(1, len(words) - 100)
-    print(f"Reduced sequence length to {sequence_length}")
+if len(words) - context_window_size < 100:
+    context_window_size = max(1, len(words) - 100)
+    print(f"Reduced sequence length to {context_window_size}")
 ```
 
 ### Issue: Out of memory
@@ -365,7 +421,7 @@ batch_size = 8  # was 64
 stocks = db.get_random_stocks(count=5)  # was 20
 
 # Use shorter sequences
-sequence_length = 8  # was 16
+context_window_size = 8  # was 16
 ```
 
 ---

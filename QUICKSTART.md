@@ -29,7 +29,7 @@ python train_model.py \
   --db-password YOUR_PASSWORD \
   --num-stocks 50 \
   --interval 30 \
-  --sequence-length 8 \
+  --context-window-size 8 \
   --batch-size 128 \
   --epochs 20 \
   --learning-rate 0.0005
@@ -108,7 +108,7 @@ Pass via command line arguments:
 | --db-password | (required) | Database password |
 | --num-stocks | 20 | Number of random stocks to analyze |
 | --interval | 30 | Minutes between consecutive "words" |
-| --sequence-length | 16 | Number of words for model input |
+| --context-window-size | 16 | Number of words for model input |
 | --batch-size | 64 | Training batch size |
 | --epochs | 10 | Number of training iterations |
 | --learning-rate | 1e-5 | Adam optimizer learning rate |
@@ -121,8 +121,8 @@ Pass via command line arguments:
 - Try a longer date range or different stocks
 
 ### "Dataset is empty"
-- Too many words may be needed for the sequence_length
-- Reduce sequence_length or get more historical data
+- Too many words may be needed for the context_window_size
+- Reduce context_window_size or get more historical data
 
 ### Database connection error
 - Ensure MySQL is running: `sudo service mysql status`

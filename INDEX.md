@@ -138,7 +138,7 @@ unique_count, unique_words = processor.count_unique_words(words)
 ### `model.py` - PyTorch Models
 ```python
 from model import StockWordDataset, StockTransformerModel
-dataset = StockWordDataset(words, vocab, sequence_length=4)
+dataset = StockWordDataset(words, vocab, context_window_size=4)
 model = StockTransformerModel(vocab_size=len(vocab))
 predictions = model.predict(input_ids)
 ```

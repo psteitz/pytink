@@ -23,18 +23,18 @@ def vocab(words):
 
 
 @pytest.fixture
-def sequence_length():
+def context_window_size():
     """Sequence length fixture."""
     return 2
 
 
 @pytest.fixture
-def dataset(words, vocab, sequence_length):
+def dataset(words, vocab, context_window_size):
     """StockWordDataset fixture."""
     return StockWordDataset(
         words=words,
         vocab=vocab,
-        sequence_length=sequence_length
+        context_window_size=context_window_size
     )
 
 
@@ -46,11 +46,11 @@ class TestStockWordDataset:
         assert dataset is not None
         assert len(dataset) == 3  # 5 words - 2 seq_length = 3 examples
     
-    def test_dataset_length(self, words, vocab, sequence_length):
+    def test_dataset_length(self, words, vocab, context_window_size):
         """Test dataset returns correct length."""
-        dataset = StockWordDataset(words, vocab, sequence_length)
-        # With 5 words and sequence_length=2, we get 3 sequences
-        expected_length = len(words) - sequence_length
+        dataset = StockWordDataset(words, vocab, context_window_size)
+        # With 5 words and context_window_size=2, we get 3 sequences
+        expected_length = len(words) - context_window_size
         assert len(dataset) == expected_length
     
     def test_dataset_getitem_returns_tuple(self, dataset):
@@ -59,10 +59,10 @@ class TestStockWordDataset:
         assert isinstance(input_ids, torch.Tensor)
         assert isinstance(label, torch.Tensor)
     
-    def test_dataset_getitem_shapes(self, dataset, sequence_length):
+    def test_dataset_getitem_shapes(self, dataset, context_window_size):
         """Test __getitem__ returns correct tensor shapes."""
         input_ids, label = dataset[0]
-        assert input_ids.shape == (sequence_length,)
+        assert input_ids.shape == (context_window_size,)
         assert label.shape == ()  # Scalar tensor
     
     def test_dataset_getitem_values(self, dataset, vocab):
@@ -75,14 +75,14 @@ class TestStockWordDataset:
     
     def test_dataset_empty_words(self):
         """Test dataset with empty words list."""
-        dataset = StockWordDataset([], {}, sequence_length=2)
+        dataset = StockWordDataset([], {}, context_window_size=2)
         assert len(dataset) == 0
     
     def test_dataset_insufficient_words(self):
-        """Test dataset when words < sequence_length."""
+        """Test dataset when words < context_window_size."""
         words = ['abc', 'def']
         vocab = {w: i for i, w in enumerate(words)}
-        dataset = StockWordDataset(words, vocab, sequence_length=5)
+        dataset = StockWordDataset(words, vocab, context_window_size=5)
         assert len(dataset) == 0
 
 
@@ -92,7 +92,7 @@ class TestCustomCollateFn:
     @pytest.fixture
     def collate_dataset(self, words, vocab):
         """Dataset fixture for collate tests."""
-        return StockWordDataset(words, vocab, sequence_length=2)
+        return StockWordDataset(words, vocab, context_window_size=2)
     
     def test_collate_fn_batch_stacking(self, collate_dataset):
         """Test collate_fn properly stacks batch."""
@@ -224,13 +224,13 @@ class TestDatasetPreconvertedTensors:
     
     def test_token_sequences_is_tensor(self, words, vocab):
         """Test that token_sequences is a pre-converted tensor."""
-        dataset = StockWordDataset(words, vocab, sequence_length=2)
+        dataset = StockWordDataset(words, vocab, context_window_size=2)
         assert isinstance(dataset.token_sequences, torch.Tensor)
         assert dataset.token_sequences.dtype == torch.long
     
     def test_getitem_returns_tensor_slices(self, words, vocab):
         """Test that __getitem__ returns slices of pre-converted tensor."""
-        dataset = StockWordDataset(words, vocab, sequence_length=2)
+        dataset = StockWordDataset(words, vocab, context_window_size=2)
         
         # Multiple calls should return consistent results
         input_ids_1, label_1 = dataset[0]
@@ -241,7 +241,7 @@ class TestDatasetPreconvertedTensors:
     
     def test_getitem_tensor_types(self, words, vocab):
         """Test that __getitem__ returns long tensors."""
-        dataset = StockWordDataset(words, vocab, sequence_length=2)
+        dataset = StockWordDataset(words, vocab, context_window_size=2)
         input_ids, label = dataset[0]
         
         assert input_ids.dtype == torch.long
@@ -249,13 +249,13 @@ class TestDatasetPreconvertedTensors:
     
     def test_empty_dataset_tensor(self):
         """Test that empty dataset creates empty tensor."""
-        dataset = StockWordDataset([], {}, sequence_length=2)
+        dataset = StockWordDataset([], {}, context_window_size=2)
         assert isinstance(dataset.token_sequences, torch.Tensor)
         assert len(dataset.token_sequences) == 0
     
     def test_dataset_tensor_values(self, words, vocab):
         """Test that tensor values match expected token IDs."""
-        dataset = StockWordDataset(words, vocab, sequence_length=2)
+        dataset = StockWordDataset(words, vocab, context_window_size=2)
         
         # Verify all tokens are correct
         for i, word in enumerate(words):

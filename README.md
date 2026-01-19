@@ -139,7 +139,7 @@ python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --epochs 5 --i
 Run the model training script:
 
 ```bash
-python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --interval 15 --sequence-length 8 --batch-size 64
+python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --interval 15 --context-window-size 8 --batch-size 64
 ```
 
 The script performs the following workflow:
@@ -171,7 +171,7 @@ Parameters can be adjusted via command line or `config_template.yaml`:
 - **--config**: Path to YAML configuration file
 - **--num-stocks**: Number of stocks to analyze (default: 20)
 - **--interval**: Price sampling interval in minutes (default: 30)
-- **--sequence-length**: Context window for model input (default: 16)
+- **--context-window-size**: Context window for model input (default: 16)
 - **--batch-size**: Training batch size (default: 64)
 - **--learning-rate**: AdamW optimizer learning rate (default: 1e-5)
 - **--epochs**: Number of training epochs (default: 10)

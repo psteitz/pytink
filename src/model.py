@@ -15,7 +15,7 @@ def custom_collate_fn(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[t
     input_ids_list = [item[0] for item in batch]
     labels_list = [item[1] for item in batch]
     
-    # Stack input sequences: (batch_size, sequence_length)
+    # Stack input sequences: (batch_size, context_window_size)
     input_ids = torch.stack(input_ids_list)
     
     # Stack labels: (batch_size,)
@@ -31,7 +31,7 @@ class StockWordDataset(Dataset):
         self,
         words: List[str],
         vocab: Dict[str, int],
-        sequence_length: int = 4
+        context_window_size: int = 4
     ):
         """
         Initialize dataset.
@@ -39,11 +39,11 @@ class StockWordDataset(Dataset):
         Args:
             words: List of word strings
             vocab: Dictionary mapping words to token IDs
-            sequence_length: Length of input sequences for prediction
+            context_window_size: Length of input sequences for prediction
         """
         self.words = words
         self.vocab = vocab
-        self.sequence_length = sequence_length
+        self.context_window_size = context_window_size
         
         # Convert words to token sequences
         token_list = []
@@ -59,26 +59,26 @@ class StockWordDataset(Dataset):
     
     def __len__(self) -> int:
         """Return number of sequences."""
-        return max(0, len(self.token_sequences) - self.sequence_length)
+        return max(0, len(self.token_sequences) - self.context_window_size)
     
     def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Return input and target sequences.
         
         For causal language modeling:
-        - input_ids: Token sequence of length sequence_length
+        - input_ids: Token sequence of length context_window_size
         - labels: Next token after the sequence (shape: scalar)
         
         Returns:
-            input_ids: Token IDs for input sequence, shape (sequence_length,)
+            input_ids: Token IDs for input sequence, shape (context_window_size,)
             labels: Token ID for next word, shape ()
         """
         if idx >= len(self):
             raise IndexError(f"Index {idx} out of range for dataset of length {len(self)}")
         
         # Slicing pre-converted tensor is much faster than creating new tensors
-        input_ids = self.token_sequences[idx:idx + self.sequence_length]
-        label = self.token_sequences[idx + self.sequence_length]
+        input_ids = self.token_sequences[idx:idx + self.context_window_size]
+        label = self.token_sequences[idx + self.context_window_size]
         
         return input_ids, label
 

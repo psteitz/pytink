@@ -345,7 +345,7 @@ def main():
     data_config = config.get('data', {})
     tickers = data_config.get('tickers', [])
     interval_minutes = data_config.get('interval_minutes', 30)
-    sequence_length = data_config.get('sequence_length', 32)
+    context_window_size = data_config.get('context_window_size', 32)
     delta_values = config.get('delta_ranges', None)
     
     if not tickers:
@@ -354,7 +354,7 @@ def main():
     
     logger.info(f"Model tickers: {tickers}")
     logger.info(f"Interval: {interval_minutes} minutes")
-    logger.info(f"Sequence length: {sequence_length}")
+    logger.info(f"Sequence length: {context_window_size}")
     
     # Set device
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -431,7 +431,7 @@ def main():
         logger.info(f"Vocabulary size: {len(vocab)}")
         
         # Create dataset
-        dataset = StockWordDataset(words=words, vocab=vocab, sequence_length=sequence_length)
+        dataset = StockWordDataset(words=words, vocab=vocab, context_window_size=context_window_size)
         logger.info(f"Created dataset with {len(dataset)} sequences")
         
         if len(dataset) == 0:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Command-line script to run stock price prediction analysis.
-Usage: python train_model.py --num-stocks 20 --interval 15 --epochs 10 --batch-size 64 --sequence-length 8
+Usage: python train_model.py --num-stocks 20 --interval 15 --epochs 10 --batch-size 64 --context-window-size 8
 """
 import argparse
 import sys
@@ -238,7 +238,7 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
         training_config = {
             'data': {
                 'interval_minutes': args.interval if args else 15,
-                'sequence_length': args.sequence_length if args else 8,
+                'context_window_size': args.context_window_size if args else 8,
             },
             'model': {
                 'hidden_size': args.hidden_size if args else 128,
@@ -388,7 +388,7 @@ def main():
     parser.add_argument('--batch-size', type=int, default=None, help='Training batch size')
     parser.add_argument('--learning-rate', type=float, default=None, help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=None, help='Weight decay for regularization')
-    parser.add_argument('--sequence-length', type=int, default=None, help='Sequence length for context')
+    parser.add_argument('--context-window-size', type=int, default=None, help='Context window size (number of tokens for model input)')
     parser.add_argument('--save-model', type=lambda x: x.lower() != 'false', default=None, 
                         help='Save trained model to disk (default: True)')
     
@@ -413,7 +413,7 @@ def main():
     # Data config
     args.num_stocks = get_config_value(args.num_stocks, 'data', 'num_stocks', 'data', 'num_stocks', 10)
     args.interval = get_config_value(args.interval, 'data', 'interval_minutes', 'data', 'interval_minutes', 30)
-    args.sequence_length = get_config_value(args.sequence_length, 'data', 'sequence_length', 'data', 'sequence_length', 32)
+    args.context_window_size = get_config_value(args.context_window_size, 'data', 'context_window_size', 'data', 'context_window_size', 32)
     
     # Parse tickers from CLI (JSON format) or config file
     if args.tickers is not None:
@@ -468,7 +468,7 @@ def main():
     logger.info("RUN PARAMETERS")
     logger.info("="*60)
     logger.info(f"Number of stocks: {args.num_stocks}")
-    logger.info(f"Context window sequence length: {args.sequence_length}")
+    logger.info(f"Context window sequence length: {args.context_window_size}")
     logger.info(f"Learning rate: {args.learning_rate}")
     logger.info(f"Number of epochs: {args.epochs}")
     logger.info(f"Batch size: {args.batch_size}")
@@ -615,7 +615,7 @@ def main():
     
     # 6. Create dataset and vocab
     vocab = {word: idx for idx, word in enumerate(sorted(unique_words))}
-    dataset = StockWordDataset(words=words, vocab=vocab, sequence_length=args.sequence_length)
+    dataset = StockWordDataset(words=words, vocab=vocab, context_window_size=args.context_window_size)
     
     logger.info(f"Created dataset with {len(dataset)} sequences")
     
