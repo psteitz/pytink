@@ -8,7 +8,7 @@ Uses random stocks, default quantization, context size
 
 ```bash
 # Run with defaults (20 stocks, 30-min intervals, 10 epochs, batch size 64, sequence length 16)
-python train_model.py --db-password YOUR_PASSWORD
+pytink-train --db-password YOUR_PASSWORD
 
 # Output:
 # ✓ Successfully connected to database
@@ -31,7 +31,7 @@ python train_model.py --db-password YOUR_PASSWORD
 ## Example 2: Custom Configuration
 ```bash
 # Use specific parameters
-python train_model.py \
+pytink-train \
     --db-password YOUR_PASSWORD \
     --num-stocks 15 \
     --interval 30 \
@@ -56,7 +56,7 @@ Instead of using random stocks, you can specify exactly which tickers to train o
 **Command-line approach:**
 ```bash
 # Train on specific tickers (JSON array format)
-python train_model.py \
+pytink-train \
     --db-password YOUR_PASSWORD \
     --tickers '["AAPL", "GOOGL", "MSFT", "AMZN", "TSLA"]' \
     --epochs 15
@@ -95,7 +95,7 @@ training:
 
 **Run with config:**
 ```bash
-python train_model.py --db-password YOUR_PASSWORD --config my_tickers.yaml
+pytink-train --db-password YOUR_PASSWORD --config my_tickers.yaml
 ```
 
 **Note:** When `tickers` is specified, `num_stocks` is ignored. The model trains on exactly the tickers you provide. This is useful for:
@@ -106,12 +106,9 @@ python train_model.py --db-password YOUR_PASSWORD --config my_tickers.yaml
 ## Example 4: Programmatic Usage
 
 ```python
-import sys
-sys.path.insert(0, 'src')
-
-from database import StockDatabase
-from processor import PriceProcessor
-from model import StockWordDataset, StockTransformerModel
+from pytink.database import StockDatabase
+from pytink.processor import PriceProcessor
+from pytink.model import StockWordDataset, StockTransformerModel
 import torch
 
 # Connect to database (password is required)
@@ -205,12 +202,12 @@ data:
 
 **Run with custom config:**
 ```bash
-python train_model.py --db-password YOUR_PASSWORD --config my_config.yaml
+pytink-train --db-password YOUR_PASSWORD --config my_config.yaml
 ```
 
 **Or use custom ranges programmatically:**
 ```python
-from src.processor import PriceProcessor
+from pytink.processor import PriceProcessor
 
 # Create processor with custom delta ranges (wider ±5% range)
 custom_deltas = [-0.05, -0.02, -0.01, 0, 0.01, 0.02, 0.05]
@@ -297,16 +294,16 @@ dataset = StockWordDataset(words, vocab)
 # Run multiple experiments with different configurations
 
 echo "=== Quick Test (Small model, few epochs) ==="
-python train_model.py --db-password YOUR_PASSWORD --num-stocks 5 --epochs 2
+pytink-train --db-password YOUR_PASSWORD --num-stocks 5 --epochs 2
 
 echo "=== Standard Configuration ==="
-python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --epochs 10
+pytink-train --db-password YOUR_PASSWORD --num-stocks 10 --epochs 10
 
 echo "=== Large Scale (More stocks, longer training) ==="
-python train_model.py --db-password YOUR_PASSWORD --num-stocks 20 --epochs 20
+pytink-train --db-password YOUR_PASSWORD --num-stocks 20 --epochs 20
 
 echo "=== Fine-tuned Learning ==="
-python train_model.py --db-password YOUR_PASSWORD --learning-rate 2e-4 --batch-size 16
+pytink-train --db-password YOUR_PASSWORD --learning-rate 2e-4 --batch-size 16
 
 # Compare results in output logs
 ```
@@ -327,8 +324,7 @@ with open('vocab.json', 'w') as f:
 print("Vocabulary saved to vocab.json")
 
 # Later, load and use model
-from transformers import AutoModelForCausalLM
-from model import StockTransformerModel
+from pytink.model import StockTransformerModel
 
 # Load vocab
 with open('vocab.json', 'r') as f:
@@ -433,21 +429,21 @@ After training a model with `save_model: true`, evaluate it on recent data:
 **Basic inference:**
 ```bash
 # Evaluate on last 3 months of data (default)
-python inference.py --db-password YOUR_PASSWORD \
+pytink-infer --db-password YOUR_PASSWORD \
     --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/
 ```
 
 **Custom time range:**
 ```bash
 # Evaluate on last 6 months
-python inference.py --db-password YOUR_PASSWORD \
+pytink-infer --db-password YOUR_PASSWORD \
     --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ \
     --months 6
 ```
 
 **With custom batch size:**
 ```bash
-python inference.py --db-password YOUR_PASSWORD \
+pytink-infer --db-password YOUR_PASSWORD \
     --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ \
     --months 3 --batch-size 128
 ```
@@ -469,7 +465,7 @@ Per-stock confusion matrix...
 
 **Using inference programmatically:**
 ```python
-from inference import load_model_config, load_model, evaluate_model
+from pytink.inference import load_model_config, load_model, evaluate_model
 
 # Load saved model
 model_dir = 'models/AAPL-GOOGL-MSFT/20260101_120000/'
@@ -483,4 +479,77 @@ model, symbol_to_id = load_model(model_dir, config)
 
 ---
 
-For more information, see README.md, QUICKSTART.md, and PROJECT_SUMMARY.md
+## Example 13: Model Farming
+
+Model farming trains many random models and evolves the pool over generations to find
+high-accuracy stock combinations, without requiring manual selection.
+
+**Quick farm run (for testing):**
+```bash
+pytink-farm --db-password YOUR_PASSWORD --num-models 20 --num-generations 3
+```
+
+**Full farm run with defaults (100 models, 10 generations):**
+```bash
+pytink-farm --db-password YOUR_PASSWORD
+```
+
+**Custom configuration:**
+```bash
+pytink-farm --db-password YOUR_PASSWORD \
+    --num-models 50 --num-generations 5 \
+    --min-stocks 5 --max-stocks 10 \
+    --epochs 10 --interval 15 --batch-size 32 \
+    --learning-rate 0.0005
+```
+
+**Example leaderboard output:**
+```
+========================================================================
+TOP 10 MODELS
+========================================================================
+Rank  Accuracy      Loss  Perplexity   Gen   #  Tickers
+------------------------------------------------------------------------
+1       0.5234    0.7821      2.1863     3    7  AAPL-MSFT-JPM-BAC-GS-AXP-V
+2       0.5187    0.8014      2.2289     2    5  GOOGL-AMZN-TSLA-NVDA-META
+3       0.5102    0.8234      2.2783     3    8  AAPL-MSFT-GOOGL-AMZN-TSLA-JPM-GS-V
+...
+```
+
+**Using the farm programmatically:**
+```python
+from pytink.farming import ModelFarm
+
+farm = ModelFarm(
+    db_password="YOUR_PASSWORD",
+    num_models=30,
+    num_generations=5,
+    min_stocks=5,
+    max_stocks=10,
+    epochs=5,
+)
+farm.run()
+
+# Access results
+for entry in farm.models[:5]:
+    print(f"{'-'.join(entry.tickers)}: accuracy={entry.eval_accuracy:.4f}")
+```
+
+**Reading the accumulated results from `models.parquet`:**
+```python
+import pandas as pd
+
+df = pd.read_parquet("models.parquet")
+print(df.sort_values("accuracy", ascending=False).head(10).to_string())
+```
+
+The parquet file stores one row per trained model with columns:
+`tickers`, `accuracy`, `loss`, `perplexity`, `interval_minutes`,
+`context_window_size`, `batch_size`, `epochs`, `learning_rate`,
+`weight_decay`, `early_stopping_patience`, `hidden_size`,
+`num_hidden_layers`, `num_attention_heads`, `max_position_embeddings`,
+`created_at`.
+
+---
+
+For more information, see README.md and QUICKSTART.md

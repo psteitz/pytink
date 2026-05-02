@@ -1,10 +1,10 @@
 # Stock Price Prediction with Transformers
 
-A transformer-based model that treats stock price movements as a language modeling problem, predicting future price patterns from historical sequences.
+A transformer-based model that treats stock price movements as a sequence-to-sequence modeling problem, predicting future prices from previous sequences of prices.
 
 ## Motivation
 
-Just as transformer models learn to predict the next word in a sentence by understanding context and patterns, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" is a token encoding simultaneous price changes across multiple stocks over a given time interval.
+Just as transformer models learn to predict the next word in a sentence, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" encodes simultaneous price changes across stocks over a given time interval.
 
 Stock prices don't move in isolation. The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form tokens and the transformer model is trained to predict the next token in the sequence.
 
@@ -23,8 +23,7 @@ This project trains a transformer model to predict the next sequence of stock pr
 
 ### Delta Encoding
 
-Delta-encoding maps price changes to letters.  For example, a 7-letter encoding could use
-the following mapping:
+Delta-encoding maps price changes to letters.  Encodings are configurable.  The default is:
 
 Price change
 - `a`: -1.0% (-.01)
@@ -58,23 +57,28 @@ The token `acgaeb` means:
 
 ```
 pytink/
-├── train_model.py           # Main CLI for training models
-├── inference.py             # Evaluate trained models on recent data
+├── pyproject.toml           # Package metadata & entry points
+├── requirements.txt         # Python dependencies
+├── config_template.yaml     # Configuration template
+├── test_installation.py     # Verify installation
 ├── src/
-│   ├── database.py          # MySQL database interface
-│   ├── processor.py         # Price processing and delta encoding
-│   ├── model.py             # PyTorch model and dataset classes
-│   └── analysis.py          # Visualization utilities
+│   └── pytink/              # Main package
+│       ├── database.py      # MySQL database interface
+│       ├── processor.py     # Price processing and delta encoding
+│       ├── model.py         # PyTorch model and dataset classes
+│       ├── analysis.py      # Visualization utilities
+│       ├── farming.py       # Automated model generation
+│       ├── train_model.py   # Training CLI
+│       └── inference.py     # Evaluate trained models
 ├── tests/                   # pytest test suite
 │   ├── test_database.py     # Database tests
 │   ├── test_processor.py    # Processor tests
 │   ├── test_model.py        # Model tests
 │   ├── test_integration.py  # Integration tests
-│   └── test_inference.py    # Inference tests
+│   ├── test_inference.py    # Inference tests
+│   └── test_farming.py      # Farming tests
 ├── models/                  # Saved model files (git-ignored)
-├── logs/                    # Training logs (git-ignored)
-├── config_template.yaml     # Configuration template
-└── requirements.txt         # Python dependencies
+└── logs/                    # Training logs (git-ignored)
 ```
 
 ## Requirements
@@ -109,9 +113,10 @@ python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-3. Install dependencies:
+3. Install dependencies and package:
 ```bash
 pip install -r requirements.txt
+pip install -e .
 ```
 
 4. Verify installation:
@@ -123,23 +128,23 @@ pytest tests/ -q
 
 ```bash
 # See all options
-python train_model.py -h
+pytink-train -h
 
 # Run with defaults (20 stocks, 10 epochs)
-python train_model.py --db-password YOUR_PASSWORD
+pytink-train --db-password YOUR_PASSWORD
 
 # Custom configuration
-python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --epochs 5 --interval 15
+pytink-train --db-password YOUR_PASSWORD --num-stocks 10 --epochs 5 --interval 15
 ```
 
 ## Usage
 
-### Running the Analysis
+### Training a Single Model
 
 Run the model training script:
 
 ```bash
-python train_model.py --db-password YOUR_PASSWORD --num-stocks 10 --interval 15 --context-window-size 8 --batch-size 64
+pytink-train --db-password YOUR_PASSWORD --num-stocks 10 --interval 15 --context-window-size 8 --batch-size 64
 ```
 
 The script performs the following workflow:
@@ -196,14 +201,14 @@ delta_ranges:
 
 The transformer model uses:
 - **Vocabulary Size**: Number of unique words in the dataset
-- **Hidden Size**: 256 dimensions
-- **Layers**: 6 transformer layers
-- **Attention Heads**: 8
+- **Hidden Size**: 128 dimensions (default)
+- **Layers**: 4 transformer layers (default)
+- **Attention Heads**: 4 (default)
 - **Position Embeddings**: Up to 256 tokens
 
 ## Module Documentation
 
-### `database.py`
+### `pytink.database`
 
 `StockDatabase` class provides:
 - `connect()`: Establish MySQL connection
@@ -212,7 +217,7 @@ The transformer model uses:
 - `get_quotes_for_stock(stock_id)`: Fetch quotes for one stock
 - `get_quotes_for_stocks(stock_ids)`: Fetch quotes for multiple stocks
 
-### `processor.py`
+### `pytink.processor`
 
 `PriceProcessor` class provides:
 - `parse_price(price_str)`: Convert price strings to floats
@@ -223,7 +228,7 @@ The transformer model uses:
 - `extract_words(quotes_dict, stock_ids)`: Generate words from price data
 - `count_unique_words(words)`: Count vocabulary size
 
-### `model.py`
+### `pytink.model`
 
 `StockTransformerModel` class provides:
 - `forward(input_ids, labels)`: Forward pass with optional loss computation
@@ -234,16 +239,16 @@ The transformer model uses:
 - PyTorch Dataset for word sequences
 - Returns (input_ids, label) pairs for training
 
-### `inference.py`
+### `pytink.inference`
 
 Evaluate trained models on recent data:
 
 ```bash
 # Evaluate a trained model on the last 3 months of data
-python inference.py --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/
+pytink-infer --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/
 
 # Evaluate on the last 6 months
-python inference.py --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ --months 6
+pytink-infer --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ --months 6
 ```
 
 The script:
@@ -251,6 +256,53 @@ The script:
 - Fetches quotes for the model's tickers from the database
 - Evaluates on data from the last N months (default: 3)
 - Reports overall accuracy, loss, perplexity, and per-stock confusion matrices
+
+### Model Farming
+
+Model farming automatically generates and evolves a pool of random stock prediction models, searching for high-accuracy combinations of stocks and hyperparameters.
+
+```bash
+# Run with defaults (100-model pool, 10 generations)
+pytink-farm --db-password YOUR_PASSWORD
+
+# Smaller, faster run for experimentation
+pytink-farm --db-password YOUR_PASSWORD --num-models 20 --num-generations 3
+
+# Custom parameters
+pytink-farm --db-password YOUR_PASSWORD \
+  --num-models 50 --num-generations 5 \
+  --min-stocks 5 --max-stocks 10 \
+  --epochs 10 --interval 15 --batch-size 32
+```
+
+The farming pipeline:
+
+1. **Cold Start**: Trains `--num-models` randomly configured models (random stock sets within the configured min/max range)
+2. **Generational Cycles**: Each generation keeps the top 25% of the pool and replaces the bottom 75% with newly trained random models
+3. **Leaderboard**: Prints a ranked table of the top 10 models by accuracy at the end
+
+Each model trained by the farm is appended to `models.parquet` at the project root, recording tickers, accuracy, loss, perplexity, and all training parameters. This file accumulates across runs.
+
+#### Farming CLI parameters
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| --db-password | (required) | Database password |
+| --num-models | 100 | Pool size |
+| --num-generations | 10 | Generational replacement cycles |
+| --min-stocks | 5 | Minimum stocks per model |
+| --max-stocks | 15 | Maximum stocks per model |
+| --epochs | 5 | Training epochs per model |
+| --interval | 30 | Price sampling interval in minutes |
+| --batch-size | 64 | Training batch size |
+| --learning-rate | 0.0003 | Adam optimizer learning rate |
+
+### `pytink.farming`
+
+`ModelFarm` class provides:
+- `cold_start()`: Populate the pool with randomly generated models
+- `run()`: Full pipeline — cold start, generational cycles, leaderboard display
+- `display_top_models(n)`: Print ranked leaderboard of top N models
 
 ## Performance Metrics
 
@@ -278,7 +330,7 @@ pytest tests/ -v
 pytest tests/test_processor.py -v
 
 # With coverage
-pytest tests/ --cov=src --cov-report=term-missing
+pytest tests/ --cov=src/pytink --cov-report=term-missing
 ```
 
 ## Future Enhancements

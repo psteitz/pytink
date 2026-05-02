@@ -59,8 +59,8 @@ DELTA_RANGES:
   - Default: [-0.01, -0.005, -0.001, 0, 0.001, 0.005, 0.01]
 
 Example usage:
-  python train_model.py --db-password PASSWORD --config my_config.yaml
-  python train_model.py --db-password PASSWORD --epochs 50 --learning-rate 0.001
+  pytink-train --db-password PASSWORD --config my_config.yaml
+  pytink-train --db-password PASSWORD --epochs 50 --learning-rate 0.001
 
 ================================================================================
 DELTA ENCODING: QUANTIZATION OF PRICE CHANGES

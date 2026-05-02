@@ -1,5 +1,4 @@
 """Tests for inference.py module."""
-import sys
 import json
 import tempfile
 import pytest
@@ -7,11 +6,16 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
 import torch
 
+from pytink.inference import (
+    load_model_config,
+    find_common_date_range,
+    filter_quotes_by_date,
+    evaluate_model,
+)
+from pytink.model import StockTransformerModel, StockWordDataset, custom_collate_fn
+from torch.utils.data import DataLoader
 
 class TestLoadModelConfig:
     """Tests for load_model_config function."""
@@ -38,11 +42,7 @@ class TestLoadModelConfig:
             
             with open(config_path, 'w') as f:
                 yaml.dump(config, f)
-            
-            # Import after creating file
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from inference import load_model_config
-            
+
             loaded = load_model_config(model_dir)
             
             assert loaded['data']['tickers'] == ['AAPL', 'GOOGL']
@@ -51,9 +51,6 @@ class TestLoadModelConfig:
     
     def test_load_missing_config(self):
         """Test error when config file is missing."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import load_model_config
-        
         with tempfile.TemporaryDirectory() as temp_dir:
             model_dir = Path(temp_dir)
             
@@ -66,9 +63,6 @@ class TestFindCommonDateRange:
     
     def test_find_range_with_overlapping_data(self):
         """Test finding common date range with overlapping quotes."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import find_common_date_range
-        
         # Stock 1: Jan 1 - Jan 31
         # Stock 2: Jan 15 - Feb 15
         # Common range should be: Jan 15 - Jan 31
@@ -91,9 +85,6 @@ class TestFindCommonDateRange:
     
     def test_find_range_single_stock(self):
         """Test with single stock."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import find_common_date_range
-        
         quotes_dict = {
             1: [
                 {'timestamp': datetime(2024, 1, 1, 10, 0), 'price': 100},
@@ -108,9 +99,6 @@ class TestFindCommonDateRange:
     
     def test_find_range_empty_quotes(self):
         """Test with empty quotes."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import find_common_date_range
-        
         quotes_dict = {1: []}
         
         start, end = find_common_date_range(quotes_dict, [1])
@@ -124,9 +112,6 @@ class TestFilterQuotesByDate:
     
     def test_filter_within_range(self):
         """Test filtering quotes within date range."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import filter_quotes_by_date
-        
         quotes_dict = {
             1: [
                 {'timestamp': datetime(2024, 1, 1, 10, 0), 'price': 100},
@@ -145,9 +130,6 @@ class TestFilterQuotesByDate:
     
     def test_filter_all_outside_range(self):
         """Test filtering when all quotes are outside range."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import filter_quotes_by_date
-        
         quotes_dict = {
             1: [
                 {'timestamp': datetime(2024, 1, 1, 10, 0), 'price': 100},
@@ -164,9 +146,6 @@ class TestFilterQuotesByDate:
     
     def test_filter_with_string_timestamps(self):
         """Test filtering with ISO format string timestamps."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import filter_quotes_by_date
-        
         quotes_dict = {
             1: [
                 {'timestamp': '2024-01-15T10:00:00', 'price': 100}
@@ -186,11 +165,6 @@ class TestEvaluateModel:
     
     def test_evaluate_returns_expected_keys(self):
         """Test that evaluate_model returns all expected metric keys."""
-        sys.path.insert(0, str(Path(__file__).parent.parent))
-        from inference import evaluate_model
-        from model import StockTransformerModel, StockWordDataset, custom_collate_fn
-        from torch.utils.data import DataLoader
-        
         # Create simple vocabulary and dataset
         words = ['aaa', 'aab', 'aba', 'baa', 'aaa', 'aab']
         vocab = {'aaa': 0, 'aab': 1, 'aba': 2, 'baa': 3}
@@ -273,12 +247,9 @@ class TestIntegration:
             
             with open(config_path, 'w') as f:
                 yaml.dump(config, f)
-            
-            sys.path.insert(0, str(Path(__file__).parent.parent))
-            from inference import load_model_config
-            
+
             loaded = load_model_config(model_dir)
-            
+
             assert 'delta_ranges' in loaded
             assert len(loaded['delta_ranges']) == 5
             assert loaded['delta_ranges'][2] == 0.0

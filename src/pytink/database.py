@@ -127,26 +127,26 @@ class StockDatabase:
         start_date: datetime = None,
         end_date: datetime = None
     ) -> List[Dict]:
-        """Retrieve quotes for a specific stock, optionally filtered by date range."""
+        """Retrieve quotes for a specific stock, optionally filtered by date range.
+
+        Each bound is independent: supply start_date, end_date, both, or neither.
+        """
         cursor = self.connection.cursor(dictionary=True)
         try:
-            if start_date and end_date:
-                query = """
-                    SELECT price, timestamp, stock 
-                    FROM quotes 
-                    WHERE stock = %s AND timestamp BETWEEN %s AND %s
-                    ORDER BY timestamp ASC
-                """
-                cursor.execute(query, (stock_id, start_date, end_date))
-            else:
-                query = """
-                    SELECT price, timestamp, stock 
-                    FROM quotes 
-                    WHERE stock = %s
-                    ORDER BY timestamp ASC
-                """
-                cursor.execute(query, (stock_id,))
-            
+            conditions = ['stock = %s']
+            params = [stock_id]
+            if start_date:
+                conditions.append('timestamp >= %s')
+                params.append(start_date)
+            if end_date:
+                conditions.append('timestamp <= %s')
+                params.append(end_date)
+            query = (
+                'SELECT price, timestamp, stock FROM quotes WHERE '
+                + ' AND '.join(conditions)
+                + ' ORDER BY timestamp ASC'
+            )
+            cursor.execute(query, tuple(params))
             quotes = cursor.fetchall()
             return quotes
         finally:
@@ -169,25 +169,20 @@ class StockDatabase:
         try:
             # Build parameterized query for all stocks at once
             placeholders = ','.join(['%s'] * len(stock_ids))
-            
-            if start_date and end_date:
-                query = f"""
-                    SELECT price, timestamp, stock 
-                    FROM quotes 
-                    WHERE stock IN ({placeholders}) AND timestamp BETWEEN %s AND %s
-                    ORDER BY stock, timestamp ASC
-                """
-                params = tuple(stock_ids) + (start_date, end_date)
-            else:
-                query = f"""
-                    SELECT price, timestamp, stock 
-                    FROM quotes 
-                    WHERE stock IN ({placeholders})
-                    ORDER BY stock, timestamp ASC
-                """
-                params = tuple(stock_ids)
-            
-            cursor.execute(query, params)
+            conditions = [f'stock IN ({placeholders})']
+            params = list(stock_ids)
+            if start_date:
+                conditions.append('timestamp >= %s')
+                params.append(start_date)
+            if end_date:
+                conditions.append('timestamp <= %s')
+                params.append(end_date)
+            query = (
+                'SELECT price, timestamp, stock FROM quotes WHERE '
+                + ' AND '.join(conditions)
+                + ' ORDER BY stock, timestamp ASC'
+            )
+            cursor.execute(query, tuple(params))
             all_quotes = cursor.fetchall()
             
             # Group quotes by stock_id

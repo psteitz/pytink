@@ -1,13 +1,8 @@
 """Unit tests for model.py module."""
-import sys
 import pytest
 import torch
-from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from model import StockWordDataset, StockTransformerModel, custom_collate_fn
+from pytink.model import StockWordDataset, StockTransformerModel, custom_collate_fn
 
 
 @pytest.fixture

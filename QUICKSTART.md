@@ -6,6 +6,7 @@
    ```bash
    cd ~/pytink
    pip install -r requirements.txt
+   pip install -e .
    ```
 
 2. **Verify MySQL database** is running with:
@@ -19,13 +20,13 @@
 
 ```bash
 # Default settings (20 stocks, 30-min intervals, 10 epochs, batch size 64, sequence length 16)
-python train_model.py --db-password YOUR_PASSWORD
+pytink-train --db-password YOUR_PASSWORD
 ```
 
 Or customize parameters:
 
 ```bash
-python train_model.py \
+pytink-train \
   --db-password YOUR_PASSWORD \
   --num-stocks 50 \
   --interval 30 \
@@ -34,6 +35,22 @@ python train_model.py \
   --epochs 20 \
   --learning-rate 0.0005
 ```
+
+## Option 2: Model Farming (Automated Search)
+
+Model farming trains many random models and keeps the best performers — useful for finding
+good stock combinations and hyperparameters without manual tuning.
+
+```bash
+# Run with defaults: 100-model pool, 10 generational cycles
+pytink-farm --db-password YOUR_PASSWORD
+
+# Smaller run for a quick test
+pytink-farm --db-password YOUR_PASSWORD --num-models 20 --num-generations 3
+```
+
+Each run appends results to `models.parquet` at the project root. A ranked leaderboard
+is printed at the end showing the top models by accuracy.
 
 ## Understanding the Output
 
@@ -127,7 +144,7 @@ Pass via command line arguments:
 ### Database connection error
 - Ensure MySQL is running: `sudo service mysql status`
 - Verify database `tinker` exists
-- Check user credentials in database.py
+- Check user credentials in `pytink/database.py`
 
 ### Out of memory
 - Reduce batch_size (e.g., 16 or 8)
@@ -142,11 +159,15 @@ Pass via command line arguments:
 ## Next Steps
 
 1. **Experiment with hyperparameters** - try different learning rates, model sizes
-2. **Evaluate trained models** - use `inference.py` to test on recent data:
+2. **Evaluate trained models** - use `pytink-infer` to test on recent data:
    ```bash
-   python inference.py --db-password YOUR_PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
+   pytink-infer --db-password YOUR_PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
    ```
-3. **Analyze predictions** - examine what patterns the model learns
+3. **Run the model farm** - automatically search for the best stock combinations:
+   ```bash
+   pytink-farm --db-password YOUR_PASSWORD --num-models 50 --num-generations 5
+   ```
+4. **Analyze predictions** - examine what patterns the model learns
 4. **Add more stocks** - how does vocabulary size change?
 5. **Try different intervals** - hourly or daily predictions
 6. **Visualize results** - plot training curves, word distributions

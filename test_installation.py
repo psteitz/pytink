@@ -49,20 +49,18 @@ def test_module_imports():
     print("Testing Project Modules")
     print("=" * 60)
     
-    sys.path.insert(0, str(Path(__file__).parent / 'src'))
-    
     modules = [
-        ('database', 'StockDatabase'),
-        ('processor', 'PriceProcessor'),
-        ('model', 'StockWordDataset'),
-        ('model', 'StockTransformerModel'),
-        ('analysis', 'plot_training_loss'),
+        ('pytink.database', 'StockDatabase'),
+        ('pytink.processor', 'PriceProcessor'),
+        ('pytink.model', 'StockWordDataset'),
+        ('pytink.model', 'StockTransformerModel'),
+        ('pytink.analysis', 'plot_training_loss'),
     ]
     
     failed = []
     for module_name, class_name in modules:
         try:
-            module = __import__(module_name)
+            module = __import__(module_name, fromlist=[class_name])
             getattr(module, class_name)
             print(f"✓ {module_name}.{class_name}")
         except (ImportError, AttributeError) as e:
@@ -83,10 +81,8 @@ def test_database_connection(db_password):
     print("Testing Database Connection")
     print("=" * 60)
     
-    sys.path.insert(0, str(Path(__file__).parent / 'src'))
-    
     try:
-        from database import StockDatabase
+        from pytink.database import StockDatabase
         db = StockDatabase(password=db_password)
         db.connect()
         print("✓ Database connection successful")
@@ -133,10 +129,8 @@ def test_model_creation():
     print("Testing Model Creation")
     print("=" * 60)
     
-    sys.path.insert(0, str(Path(__file__).parent / 'src'))
-    
     try:
-        from model import StockTransformerModel
+        from pytink.model import StockTransformerModel
         
         # Test small model
         model = StockTransformerModel(
@@ -163,10 +157,8 @@ def test_data_processing():
     print("Testing Data Processing")
     print("=" * 60)
     
-    sys.path.insert(0, str(Path(__file__).parent / 'src'))
-    
     try:
-        from processor import (
+        from pytink.processor import (
             PriceProcessor,
             DELTA_VALUES,
             DELTA_TO_CHAR,

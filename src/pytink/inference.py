@@ -19,16 +19,13 @@ try:
 except ImportError:
     yaml = None
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
-
 import torch
 from torch.utils.data import DataLoader
 import numpy as np
 
-from database import StockDatabase
-from processor import PriceProcessor
-from model import StockWordDataset, StockTransformerModel, custom_collate_fn
+from pytink.database import StockDatabase
+from pytink.processor import PriceProcessor
+from pytink.model import StockWordDataset, StockTransformerModel, custom_collate_fn
 
 
 # Setup logging

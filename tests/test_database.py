@@ -1,13 +1,9 @@
 """Unit tests for database.py module."""
-import sys
 import pytest
-from pathlib import Path
+from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from database import StockDatabase
+from pytink.database import StockDatabase
 
 
 @pytest.fixture
@@ -25,7 +21,7 @@ def db_config():
 class TestStockDatabase:
     """Test StockDatabase class."""
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_database_connection(self, mock_connect, db_config):
         """Test database connection."""
         mock_connection = MagicMock()
@@ -47,7 +43,7 @@ class TestStockDatabase:
         assert db.user == 'test_user'
         assert db.database == 'test_db'
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_all_stocks_returns_list(self, mock_connect, db_config):
         """Test get_all_stocks returns a list."""
         mock_connection = MagicMock()
@@ -67,7 +63,7 @@ class TestStockDatabase:
         assert isinstance(stocks, list)
         assert len(stocks) == 2
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_random_stocks_returns_list(self, mock_connect, db_config):
         """Test get_random_stocks returns list of stocks."""
         mock_connection = MagicMock()
@@ -85,7 +81,7 @@ class TestStockDatabase:
         
         assert isinstance(stocks, list)
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_quotes_for_stocks_returns_dict(self, mock_connect, db_config):
         """Test get_quotes_for_stocks returns dict."""
         mock_connection = MagicMock()
@@ -109,7 +105,7 @@ class TestStockDatabase:
         assert isinstance(quotes, dict)
         assert 1 in quotes
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_stocks_by_tickers_returns_matching_stocks(self, mock_connect, db_config):
         """Test get_stocks_by_tickers returns stocks matching the provided tickers."""
         mock_connection = MagicMock()
@@ -131,7 +127,7 @@ class TestStockDatabase:
         assert stocks[0]['ticker'] == 'AAPL'
         assert stocks[1]['ticker'] == 'GOOGL'
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_stocks_by_tickers_returns_empty_for_empty_list(self, mock_connect, db_config):
         """Test get_stocks_by_tickers returns empty list when given empty list."""
         mock_connection = MagicMock()
@@ -145,7 +141,7 @@ class TestStockDatabase:
         assert isinstance(stocks, list)
         assert len(stocks) == 0
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_stocks_by_tickers_partial_match(self, mock_connect, db_config):
         """Test get_stocks_by_tickers returns only stocks found in database."""
         mock_connection = MagicMock()
@@ -166,7 +162,7 @@ class TestStockDatabase:
         assert len(stocks) == 1
         assert stocks[0]['ticker'] == 'AAPL'
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_get_stocks_by_tickers_none_found(self, mock_connect, db_config):
         """Test get_stocks_by_tickers returns empty list when no tickers found."""
         mock_connection = MagicMock()
@@ -206,8 +202,8 @@ class TestDatabaseWithoutConnection:
 class TestUpdateMissingStockNames:
     """Test update_missing_stock_names method."""
     
-    @patch('database.mysql.connector.connect')
-    @patch('database.yf.Ticker')
+    @patch('pytink.database.mysql.connector.connect')
+    @patch('pytink.database.yf.Ticker')
     def test_update_missing_stock_names_fetches_from_yfinance(self, mock_ticker, mock_connect):
         """Test that missing names are fetched from yFinance."""
         mock_connection = MagicMock()
@@ -230,8 +226,8 @@ class TestUpdateMissingStockNames:
         # Should have called yFinance
         mock_ticker.assert_called_once_with('AAPL')
     
-    @patch('database.mysql.connector.connect')
-    @patch('database.yf.Ticker')
+    @patch('pytink.database.mysql.connector.connect')
+    @patch('pytink.database.yf.Ticker')
     def test_update_missing_stock_names_skips_existing(self, mock_ticker, mock_connect):
         """Test that stocks with existing names are skipped."""
         mock_connection = MagicMock()
@@ -249,7 +245,7 @@ class TestUpdateMissingStockNames:
         # Should NOT have called yFinance
         mock_ticker.assert_not_called()
     
-    @patch('database.mysql.connector.connect')
+    @patch('pytink.database.mysql.connector.connect')
     def test_update_missing_stock_names_handles_not_found(self, mock_connect):
         """Test handling of stock ID not found in database."""
         mock_connection = MagicMock()
@@ -265,3 +261,166 @@ class TestUpdateMissingStockNames:
         
         # Should not raise error
         db.update_missing_stock_names([999])
+
+
+class TestGetQuotesDateRange:
+    """Test date-range filtering in get_quotes_for_stocks and get_quotes_for_stock."""
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stocks_with_date_range_applies_both_bounds(self, mock_connect, db_config):
+        """When both start_date and end_date are provided, >= and <= filters are applied."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [
+            {'price': '100.00', 'timestamp': '2024-03-01 10:00:00', 'stock': 1},
+        ]
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 6, 1)
+        result = db.get_quotes_for_stocks([1], start_date=start, end_date=end)
+
+        call_args = mock_cursor.execute.call_args
+        query, params = call_args[0]
+        assert '>=' in query
+        assert '<=' in query
+        assert start in params
+        assert end in params
+        assert isinstance(result, dict)
+        assert 1 in result
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stocks_without_dates_omits_between(self, mock_connect, db_config):
+        """When no dates are supplied, the query fetches all rows without a BETWEEN clause."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = []
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        db.get_quotes_for_stocks([1])
+
+        call_args = mock_cursor.execute.call_args
+        query, params = call_args[0]
+        assert 'BETWEEN' not in query.upper()
+        assert params == (1,)
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stocks_only_start_date_applies_lower_bound(self, mock_connect, db_config):
+        """When only start_date is given, a >= lower-bound filter is applied."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = []
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        start = datetime(2024, 1, 1)
+        db.get_quotes_for_stocks([1], start_date=start)
+
+        call_args = mock_cursor.execute.call_args
+        query, params = call_args[0]
+        assert '>=' in query
+        assert start in params
+        assert '<=' not in query
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stocks_only_end_date_applies_upper_bound(self, mock_connect, db_config):
+        """When only end_date is given, a <= upper-bound filter is applied."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = []
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        end = datetime(2024, 12, 31)
+        db.get_quotes_for_stocks([1], end_date=end)
+
+        call_args = mock_cursor.execute.call_args
+        query, params = call_args[0]
+        assert '<=' in query
+        assert end in params
+        assert '>=' not in query
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stocks_date_range_groups_by_stock(self, mock_connect, db_config):
+        """Quotes returned within a date range are correctly grouped by stock ID."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [
+            {'price': '100.00', 'timestamp': '2024-03-01 10:00:00', 'stock': 1},
+            {'price': '200.00', 'timestamp': '2024-03-01 10:00:00', 'stock': 2},
+            {'price': '101.00', 'timestamp': '2024-03-02 10:00:00', 'stock': 1},
+        ]
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        result = db.get_quotes_for_stocks(
+            [1, 2],
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 12, 31),
+        )
+
+        assert len(result[1]) == 2
+        assert len(result[2]) == 1
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stock_with_date_range_applies_both_bounds(self, mock_connect, db_config):
+        """Single-stock variant applies >= and <= filters when both dates are provided."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = [
+            {'price': '100.00', 'timestamp': '2024-03-01 10:00:00', 'stock': 1},
+        ]
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 6, 1)
+        result = db.get_quotes_for_stock(1, start_date=start, end_date=end)
+
+        call_args = mock_cursor.execute.call_args
+        query, params = call_args[0]
+        assert '>=' in query
+        assert '<=' in query
+        assert start in params
+        assert end in params
+        assert isinstance(result, list)
+
+    @patch('pytink.database.mysql.connector.connect')
+    def test_get_quotes_for_stock_without_dates_omits_between(self, mock_connect, db_config):
+        """Single-stock variant fetches all rows when no dates are given."""
+        mock_connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_connection.cursor.return_value = mock_cursor
+        mock_cursor.fetchall.return_value = []
+        mock_connect.return_value = mock_connection
+
+        db = StockDatabase(**db_config)
+        db.connect()
+
+        db.get_quotes_for_stock(1)
+
+        call_args = mock_cursor.execute.call_args
+        query, params = call_args[0]
+        assert 'BETWEEN' not in query.upper()
+        assert params == (1,)
+

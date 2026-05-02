@@ -12,20 +12,19 @@ The alphabet encodes changes. The default model uses configuration in [config_te
 Choose your learning path:
 
 ### **New to the project?**
-1. Read **[PROJECT_SUMMARY.md](PROJECT_SUMMARY.md)** (5 min overview)
-2. Follow **[QUICKSTART.md](QUICKSTART.md)** (setup & first run)
-3. Try **[EXAMPLES.md](EXAMPLES.md)** (11 practical examples)
+1. Follow **[QUICKSTART.md](QUICKSTART.md)** (setup & first run)
+2. Try **[EXAMPLES.md](EXAMPLES.md)** (11 practical examples)
 
 ### **Want to dive in immediately?**
 ```bash
 pip install -r requirements.txt
+pip install -e .
 python test_installation.py          # Verify setup
-python train_model.py --db-password YOUR_PASSWORD   # Run with defaults
+pytink-train --db-password YOUR_PASSWORD   # Run with defaults
 ```
 
 ### **Looking for specific information?**
-- **Full technical docs**: See [README.md](README.md)
-- **File structure**: See [STRUCTURE.txt](STRUCTURE.txt)
+- **Technical docs**: See [README.md](README.md)
 - **Configuration**: See [config_template.yaml](config_template.yaml)
 - **Source code**: See [src/](src/) directory
 
@@ -49,30 +48,33 @@ Trains a **transformer model** to predict the next "word" in a sequence of stock
 pytink/
 ├── README.md                 ← Full technical documentation
 ├── QUICKSTART.md             ← Setup & usage guide
-├── PROJECT_SUMMARY.md        ← Overview & architecture
 ├── EXAMPLES.md               ← 11 usage examples
 ├── STRUCTURE.txt             ← File descriptions
 ├── INDEX.md                  ← You are here
 │
+├── pyproject.toml            ← Package metadata & entry points
 ├── requirements.txt          ← Install with: pip install -r requirements.txt
-├── config_template.py        ← Configuration templates
+├── config_template.yaml      ← Configuration template
 ├── test_installation.py      ← Verify installation
-├── train_model.py            ← Training CLI interface
-├── inference.py              ← Evaluate trained models
 │
-├── src/                      ← Core Python modules
-│   ├── database.py           ← MySQL interface
-│   ├── processor.py          ← Data processing & encoding
-│   ├── model.py              ← PyTorch models
-│   ├── analysis.py           ← Visualization tools
-│   └── __init__.py           ← Package init
+├── src/                      ← Core Python package
+│   └── pytink/
+│       ├── database.py       ← MySQL interface
+│       ├── processor.py      ← Data processing & encoding
+│       ├── model.py          ← PyTorch models
+│       ├── analysis.py       ← Visualization tools
+│       ├── farming.py        ← Automated model generation
+│       ├── train_model.py    ← Training CLI (entry: pytink-train)
+│       ├── inference.py      ← Evaluate trained models (entry: pytink-infer)
+│       └── __init__.py       ← Package init
 │
 └── tests/                    ← Unit & integration tests
     ├── test_database.py
     ├── test_processor.py
     ├── test_model.py
     ├── test_integration.py
-    └── test_inference.py
+    ├── test_inference.py
+    └── test_farming.py
 ```
 
 ---
@@ -83,12 +85,13 @@ pytink/
 ```bash
 cd ~/pytink
 pip install -r requirements.txt
-python train_model.py --db-password YOUR_PASSWORD
+pip install -e .
+pytink-train --db-password YOUR_PASSWORD
 ```
 
 ### Evaluate a Trained Model
 ```bash
-python inference.py --db-password YOUR_PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
+pytink-infer --db-password YOUR_PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
 ```
 
 ### Verify Installation First
@@ -108,7 +111,7 @@ pytest tests/ -v
 
 | File | Purpose | Read Time |
 |------|---------|-----------|
-| **PROJECT_SUMMARY.md** | Overview, architecture, features | 5 min |
+
 | **QUICKSTART.md** | Setup, basic usage, troubleshooting | 10 min |
 | **README.md** | Complete technical reference | 20 min |
 | **EXAMPLES.md** | 11 practical code examples | 15 min |
@@ -118,34 +121,34 @@ pytest tests/ -v
 
 ## 🔧 Core Modules
 
-### `database.py` - MySQL Interface
+### `pytink.database` - MySQL Interface
 ```python
-from database import StockDatabase
+from pytink.database import StockDatabase
 db = StockDatabase()
 db.connect()
 stocks = db.get_random_stocks(count=10)
 quotes = db.get_quotes_for_stocks(stock_ids)
 ```
 
-### `processor.py` - Data Processing
+### `pytink.processor` - Data Processing
 ```python
-from processor import PriceProcessor
+from pytink.processor import PriceProcessor
 processor = PriceProcessor(interval_minutes=15)
 words = processor.extract_words(quotes, stock_ids)
 unique_count, unique_words = processor.count_unique_words(words)
 ```
 
-### `model.py` - PyTorch Models
+### `pytink.model` - PyTorch Models
 ```python
-from model import StockWordDataset, StockTransformerModel
+from pytink.model import StockWordDataset, StockTransformerModel
 dataset = StockWordDataset(words, vocab, context_window_size=4)
 model = StockTransformerModel(vocab_size=len(vocab))
 predictions = model.predict(input_ids)
 ```
 
-### `analysis.py` - Visualization
+### `pytink.analysis` - Visualization
 ```python
-from analysis import plot_training_loss, analyze_prediction_quality
+from pytink.analysis import plot_training_loss, analyze_prediction_quality
 plot_training_loss(history)
 analyze_prediction_quality(predictions)
 ```

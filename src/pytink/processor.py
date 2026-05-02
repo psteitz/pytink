@@ -47,10 +47,10 @@ CHAR_TO_DELTA = {chr(ord('a') + i): delta for i, delta in enumerate(DELTA_VALUES
 class PriceProcessor:
     """Processes stock price data and converts to deltas and words.
     
-    Optimized for large datasets (500k+ quotes per stock) using:
+    Notes:
     - Time-based sequential processing (no cartesian product of timestamps)
     - Parallel processing across time segments
-    - Minimal memory footprint (rolling 15-minute window)
+    - Rolling 15-minute window
     - Market hours awareness (skips weekends, holidays, after-hours)
     """
     

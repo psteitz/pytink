@@ -1,16 +1,14 @@
 """Integration tests for the stock prediction system."""
-import sys
 import tempfile
 import json
 import pytest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from processor import PriceProcessor
-from model import StockWordDataset
+from pytink.processor import PriceProcessor
+from pytink.model import StockWordDataset
+from pytink.train_model import parse_date
 import torch
 
 
@@ -437,3 +435,37 @@ class TestSaveAndLoadArtifacts:
             
             assert len(loaded_hist['train_losses']) == 5
             assert loaded_hist['train_losses'][0] == 0.5
+
+
+class TestParseDateFunction:
+    """Tests for the parse_date helper used by train_model CLI."""
+
+    def test_none_returns_none(self):
+        assert parse_date(None, '--start-date') is None
+
+    def test_valid_date_parses_correctly(self):
+        result = parse_date('2024-06-15', '--start-date')
+        assert result == datetime(2024, 6, 15)
+
+    def test_start_and_end_dates_parse_correctly(self):
+        start = parse_date('2023-01-01', '--start-date')
+        end = parse_date('2024-12-31', '--end-date')
+        assert start == datetime(2023, 1, 1)
+        assert end == datetime(2024, 12, 31)
+        assert start < end
+
+    def test_invalid_format_slash_exits(self):
+        with pytest.raises(SystemExit):
+            parse_date('01/15/2024', '--start-date')
+
+    def test_invalid_format_text_exits(self):
+        with pytest.raises(SystemExit):
+            parse_date('not-a-date', '--end-date')
+
+    def test_invalid_day_exits(self):
+        with pytest.raises(SystemExit):
+            parse_date('2024-02-30', '--start-date')
+
+    def test_partial_date_exits(self):
+        with pytest.raises(SystemExit):
+            parse_date('2024-06', '--start-date')

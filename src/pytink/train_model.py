@@ -17,9 +17,6 @@ try:
 except ImportError:
     yaml = None
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
-
 import torch
 from torch.utils.data import DataLoader
 import torch.optim as optim
@@ -27,9 +24,9 @@ import torch.nn as nn
 import numpy as np
 import matplotlib.pyplot as plt
 
-from database import StockDatabase
-from processor import PriceProcessor
-from model import StockWordDataset, StockTransformerModel, custom_collate_fn
+from pytink.database import StockDatabase
+from pytink.processor import PriceProcessor
+from pytink.model import StockWordDataset, StockTransformerModel, custom_collate_fn
 
 
 class BatchProgressFilter(logging.Filter):
@@ -369,6 +366,20 @@ def plot_results(training_history, eval_history, output_dir, logger):
         logger.error(f"Failed to generate plots: {e}")
 
 
+def parse_date(val, name):
+    """Parse a YYYY-MM-DD string into a datetime, or return None if val is None.
+
+    Calls sys.exit(1) on invalid format.
+    """
+    if val is None:
+        return None
+    try:
+        return datetime.strptime(val, '%Y-%m-%d')
+    except ValueError:
+        logger.error(f"Invalid {name} format '{val}' — expected YYYY-MM-DD")
+        sys.exit(1)
+
+
 def main():
     # Load default config from template first
     default_config = load_default_config()
@@ -389,6 +400,8 @@ def main():
     parser.add_argument('--learning-rate', type=float, default=None, help='Learning rate')
     parser.add_argument('--weight-decay', type=float, default=None, help='Weight decay for regularization')
     parser.add_argument('--context-window-size', type=int, default=None, help='Context window size (number of tokens for model input)')
+    parser.add_argument('--start-date', type=str, default=None, help='Earliest quote date to include in training (YYYY-MM-DD); default includes all historical data')
+    parser.add_argument('--end-date', type=str, default=None, help='Latest quote date to include in training (YYYY-MM-DD); default includes up to the most recent data')
     parser.add_argument('--save-model', type=lambda x: x.lower() != 'false', default=None, 
                         help='Save trained model to disk (default: True)')
     
@@ -414,7 +427,12 @@ def main():
     args.num_stocks = get_config_value(args.num_stocks, 'data', 'num_stocks', 'data', 'num_stocks', 10)
     args.interval = get_config_value(args.interval, 'data', 'interval_minutes', 'data', 'interval_minutes', 30)
     args.context_window_size = get_config_value(args.context_window_size, 'data', 'context_window_size', 'data', 'context_window_size', 32)
-    
+    args.start_date = get_config_value(args.start_date, 'data', 'start_date', 'data', 'start_date', None)
+    args.end_date = get_config_value(args.end_date, 'data', 'end_date', 'data', 'end_date', None)
+
+    args.start_date = parse_date(args.start_date, '--start-date')
+    args.end_date = parse_date(args.end_date, '--end-date')
+
     # Parse tickers from CLI (JSON format) or config file
     if args.tickers is not None:
         try:
@@ -530,8 +548,10 @@ def main():
     
     # 3. Fetch quotes
     logger.info("Fetching quote data...")
+    if args.start_date or args.end_date:
+        logger.info(f"  Date range: {args.start_date or 'earliest'} to {args.end_date or 'latest'}")
     data_start_time = time.time()
-    quotes_dict = db.get_quotes_for_stocks(stock_ids)
+    quotes_dict = db.get_quotes_for_stocks(stock_ids, start_date=args.start_date, end_date=args.end_date)
     
     for stock_id, quotes in quotes_dict.items():
         ticker = next((s['ticker'] for s in random_stocks if s['id'] == stock_id), 'Unknown')

@@ -1,13 +1,8 @@
 """Unit tests for processor.py module."""
-import sys
 import pytest
-from pathlib import Path
 from datetime import datetime
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
-
-from processor import PriceProcessor, DELTA_VALUES, DELTA_TO_CHAR
+from pytink.processor import PriceProcessor, DELTA_VALUES, DELTA_TO_CHAR
 
 
 class TestDeltaValues:
