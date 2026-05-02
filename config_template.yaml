@@ -16,15 +16,15 @@ data:
   sequence_length: 32 # Length of input sequences for the model
   # Optional: specify exact tickers to use (overrides num_stocks if provided)
   tickers: []  # Empty list means use random stocks; populate to use specific tickers
-  # Optional: restrict quotes to a date range; null means no limit on that end.
-  # Accepted format: YYYY-MM-DD (e.g. 2024-01-15).  Each bound is independent.
-  start_date: null  # Earliest quote date to include (YYYY-MM-DD); null includes all historical data
-  end_date: null    # Latest quote date to include (YYYY-MM-DD); null includes up to the most recent data
   # Example with specific tickers:
   # tickers:
   #   - AAPL
   #   - GOOGL
   #   - MSFT
+  # Optional: restrict quotes to a date range; null means no limit on that end.
+  # Accepted format: YYYY-MM-DD (e.g. 2024-01-15).  Each bound is independent.
+  start_date: null  # Earliest quote date to include (YYYY-MM-DD); null includes all historical data
+  end_date: null    # Latest quote date to include (YYYY-MM-DD); null includes up to the most recent data
 
 # Model Configuration
 model:

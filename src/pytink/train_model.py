@@ -380,18 +380,12 @@ def parse_date(val, name):
         sys.exit(1)
 
 
-def main():
-    # Load default config from template first
-    default_config = load_default_config()
-    default_data = default_config.get('data', {})
-    default_training = default_config.get('training', {})
-    default_output = default_config.get('output', {})
-    
+def _build_arg_parser():
     parser = argparse.ArgumentParser(description='Stock Price Prediction Model')
     parser.add_argument('--db-password', type=str, required=True, help='Database password (required)')
     parser.add_argument('--config', type=str, default=None, help='Path to YAML config file')
     parser.add_argument('--num-stocks', type=int, default=None, help='Number of random stocks to use')
-    parser.add_argument('--tickers', type=str, default=None, 
+    parser.add_argument('--tickers', type=str, default=None,
                         help='JSON list of ticker symbols, e.g. \'["BAC", "AXP", "MSFT"]\' (overrides --num-stocks)')
     parser.add_argument('--interval', type=int, default=None, help='Time interval in minutes')
     parser.add_argument('--epochs', type=int, default=None, help='Number of training epochs')
@@ -402,38 +396,39 @@ def main():
     parser.add_argument('--context-window-size', type=int, default=None, help='Context window size (number of tokens for model input)')
     parser.add_argument('--start-date', type=str, default=None, help='Earliest quote date to include in training (YYYY-MM-DD); default includes all historical data')
     parser.add_argument('--end-date', type=str, default=None, help='Latest quote date to include in training (YYYY-MM-DD); default includes up to the most recent data')
-    parser.add_argument('--save-model', type=lambda x: x.lower() != 'false', default=None, 
+    parser.add_argument('--save-model', type=lambda x: x.lower() != 'false', default=None,
                         help='Save trained model to disk (default: True)')
-    
-    args = parser.parse_args()
-    
-    # Load user config file if provided
-    user_config = {}
-    if args.config:
-        user_config = load_config(args.config)
-    
-    # Merge configs: CLI args > user config > default config
-    # Helper to get value with priority: CLI > user_config > default_config > fallback
-    def get_config_value(cli_val, user_section, user_key, default_section, default_key, fallback):
+    return parser
+
+
+def _merge_config(args, default_config, user_config):
+    """Resolve all config values with priority: CLI args > user config > default config > hardcoded fallback."""
+    default_data = default_config.get('data', {})
+    default_training = default_config.get('training', {})
+    default_output = default_config.get('output', {})
+    default_model = default_config.get('model', {})
+    user_model = user_config.get('model', {})
+
+    def cv(cli_val, section, key, fallback):
+        """Return first non-None value from: CLI, user config, default config, fallback."""
         if cli_val is not None:
             return cli_val
-        if user_config.get(user_section, {}).get(user_key) is not None:
-            return user_config[user_section][user_key]
-        if default_config.get(default_section, {}).get(default_key) is not None:
-            return default_config[default_section][default_key]
+        v = user_config.get(section, {}).get(key)
+        if v is not None:
+            return v
+        v = default_config.get(section, {}).get(key)
+        if v is not None:
+            return v
         return fallback
-    
-    # Data config
-    args.num_stocks = get_config_value(args.num_stocks, 'data', 'num_stocks', 'data', 'num_stocks', 10)
-    args.interval = get_config_value(args.interval, 'data', 'interval_minutes', 'data', 'interval_minutes', 30)
-    args.context_window_size = get_config_value(args.context_window_size, 'data', 'context_window_size', 'data', 'context_window_size', 32)
-    args.start_date = get_config_value(args.start_date, 'data', 'start_date', 'data', 'start_date', None)
-    args.end_date = get_config_value(args.end_date, 'data', 'end_date', 'data', 'end_date', None)
 
-    args.start_date = parse_date(args.start_date, '--start-date')
-    args.end_date = parse_date(args.end_date, '--end-date')
+    # Data
+    args.num_stocks = cv(args.num_stocks, 'data', 'num_stocks', 10)
+    args.interval = cv(args.interval, 'data', 'interval_minutes', 30)
+    args.context_window_size = cv(args.context_window_size, 'data', 'context_window_size', 32)
+    args.start_date = parse_date(cv(args.start_date, 'data', 'start_date', None), '--start-date')
+    args.end_date = parse_date(cv(args.end_date, 'data', 'end_date', None), '--end-date')
 
-    # Parse tickers from CLI (JSON format) or config file
+    # Tickers (JSON string from CLI or list from config)
     if args.tickers is not None:
         try:
             args.tickers = json.loads(args.tickers)
@@ -445,541 +440,405 @@ def main():
             sys.exit(1)
     else:
         args.tickers = user_config.get('data', {}).get('tickers', default_data.get('tickers', None))
-    
-    # Treat empty list as None (use random stocks)
     if args.tickers is not None and len(args.tickers) == 0:
         args.tickers = None
-    
-    # Training config
-    args.batch_size = get_config_value(args.batch_size, 'training', 'batch_size', 'training', 'batch_size', 64)
-    args.epochs = get_config_value(args.epochs, 'training', 'num_epochs', 'training', 'num_epochs', 25)
-    args.learning_rate = get_config_value(args.learning_rate, 'training', 'learning_rate', 'training', 'learning_rate', 0.0003)
-    args.weight_decay = get_config_value(args.weight_decay, 'training', 'weight_decay', 'training', 'weight_decay', 0.01)
-    args.early_stopping_patience = get_config_value(args.early_stopping_patience, 'training', 'early_stopping_patience', 'training', 'early_stopping_patience', 5)
+
+    # Training
+    args.batch_size = cv(args.batch_size, 'training', 'batch_size', 64)
+    args.epochs = cv(args.epochs, 'training', 'num_epochs', 25)
+    args.learning_rate = cv(args.learning_rate, 'training', 'learning_rate', 0.0003)
+    args.weight_decay = cv(args.weight_decay, 'training', 'weight_decay', 0.01)
+    args.early_stopping_patience = cv(args.early_stopping_patience, 'training', 'early_stopping_patience', 5)
     args.use_class_weights = user_config.get('training', {}).get('use_class_weights', default_training.get('use_class_weights', True))
-    
-    # Output config
-    args.save_model = get_config_value(args.save_model, 'output', 'save_model', 'output', 'save_model', True)
+
+    # Output
+    args.save_model = cv(args.save_model, 'output', 'save_model', True)
     args.save_vocabulary = user_config.get('output', {}).get('save_vocabulary', default_output.get('save_vocabulary', False))
     args.save_predictions = user_config.get('output', {}).get('save_predictions', default_output.get('save_predictions', False))
     args.plot_results = user_config.get('output', {}).get('plot_results', default_output.get('plot_results', False))
-    
-    # Model config
-    default_model = default_config.get('model', {})
-    user_model = user_config.get('model', {})
+
+    # Model architecture
     args.hidden_size = user_model.get('hidden_size', default_model.get('hidden_size', 128))
     args.num_hidden_layers = user_model.get('num_hidden_layers', default_model.get('num_hidden_layers', 4))
     args.num_attention_heads = user_model.get('num_attention_heads', default_model.get('num_attention_heads', 4))
     args.max_position_embeddings = user_model.get('max_position_embeddings', default_model.get('max_position_embeddings', 256))
-    
-    # Delta ranges - use user config, then default config, then hardcoded fallback
+
+    # Delta ranges
     args.delta_ranges = user_config.get('delta_ranges', default_config.get('delta_ranges', None))
-    
-    # Store merged config for later use (e.g., saving with model)
-    config = user_config if user_config else default_config
-    
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info(f"Using device: {device}")
-    
-    # Log run parameters
-    logger.info("="*60)
-    logger.info("RUN PARAMETERS")
-    logger.info("="*60)
-    logger.info(f"Number of stocks: {args.num_stocks}")
-    logger.info(f"Context window sequence length: {args.context_window_size}")
-    logger.info(f"Learning rate: {args.learning_rate}")
-    logger.info(f"Number of epochs: {args.epochs}")
-    logger.info(f"Batch size: {args.batch_size}")
-    logger.info(f"Interval (minutes): {args.interval}")
-    logger.info("="*60)
-    
-    # 1. Connect to database
-    logger.info("Connecting to database...")
-    db = StockDatabase(password=args.db_password)
-    db.connect()
-    
-    # 2. Get stocks - either by tickers list or randomly
+
+
+def _fetch_stocks(db, args):
+    """Return (stock_ids, random_stocks) from the database, deduped."""
     if args.tickers:
         logger.info(f"Fetching specified tickers: {args.tickers}")
-        random_stocks = db.get_stocks_by_tickers(args.tickers)
-        
-        # Check for missing tickers - exit with error if any not found
-        found_tickers = {stock['ticker'] for stock in random_stocks}
-        missing_tickers = [t for t in args.tickers if t not in found_tickers]
-        if missing_tickers:
-            logger.error(f"Tickers not found in database: {missing_tickers}")
+        stocks = db.get_stocks_by_tickers(args.tickers)
+        found = {s['ticker'] for s in stocks}
+        missing = [t for t in args.tickers if t not in found]
+        if missing:
+            logger.error(f"Tickers not found in database: {missing}")
             db.close()
             sys.exit(1)
     else:
         logger.info(f"Fetching {args.num_stocks} random stocks with at least 100,000 quotes...")
-        random_stocks = db.get_random_stocks(count=args.num_stocks, min_quotes=100000)
-    
-    # Remove duplicate stocks by ID (keep first occurrence)
-    seen_ids = set()
-    unique_stocks = []
-    for stock in random_stocks:
-        if stock['id'] not in seen_ids:
-            unique_stocks.append(stock)
-            seen_ids.add(stock['id'])
-    
-    if len(unique_stocks) < len(random_stocks):
-        logger.warning(f"Removed {len(random_stocks) - len(unique_stocks)} duplicate stocks")
-    
-    random_stocks = unique_stocks
-    stock_ids = [stock['id'] for stock in random_stocks]
-    
-    if len(random_stocks) < args.num_stocks:
-        logger.warning(f"Only found {len(random_stocks)} stocks with >= 100,000 quotes (requested {args.num_stocks})")
-    
-    # Update missing stock names from yFinance
+        stocks = db.get_random_stocks(count=args.num_stocks, min_quotes=100000)
+
+    # Dedupe by ID
+    seen, unique = set(), []
+    for s in stocks:
+        if s['id'] not in seen:
+            unique.append(s)
+            seen.add(s['id'])
+    if len(unique) < len(stocks):
+        logger.warning(f"Removed {len(stocks) - len(unique)} duplicate stocks")
+    if not args.tickers and len(unique) < args.num_stocks:
+        logger.warning(f"Only found {len(unique)} stocks with >= 100,000 quotes (requested {args.num_stocks})")
+
+    return [s['id'] for s in unique], unique
+
+
+def _refresh_stock_names(db, stock_ids):
+    """Update missing names via yFinance and return refreshed stock rows."""
     logger.info("Updating missing stock names...")
     db.update_missing_stock_names(stock_ids)
-    
-    # Refresh the stock data for the selected IDs to get updated names
     cursor = db.connection.cursor(dictionary=True)
     placeholders = ','.join(['%s'] * len(stock_ids))
     cursor.execute(f"SELECT id, ticker, name FROM stocks WHERE id IN ({placeholders})", stock_ids)
-    random_stocks = cursor.fetchall()
+    stocks = cursor.fetchall()
     cursor.close()
-    
-    for stock in random_stocks:
-        name = stock['name'] or 'N/A'
-        logger.info(f"  {stock['ticker']}: {name}")
-    
-    # 3. Fetch quotes
+    for s in stocks:
+        logger.info(f"  {s['ticker']}: {s['name'] or 'N/A'}")
+    return stocks
+
+
+def _compute_class_weights(train_dataset, vocab_size, device):
+    """Return a log-scaled, normalised class-weight tensor."""
+    class_counts = torch.zeros(vocab_size)
+    for idx in range(len(train_dataset)):
+        _, label = train_dataset[idx]
+        class_counts[label.item()] += 1
+
+    total = class_counts.sum()
+    weights = torch.zeros(vocab_size)
+    mask = class_counts > 0
+    freqs = class_counts[mask] / total
+    weights[mask] = torch.log(1.0 / freqs + 1)
+    mean_w = weights[mask].mean()
+    if mean_w > 0:
+        weights[mask] /= mean_w
+    return weights
+
+
+def _run_eval(model, loader, dataset_len, device):
+    """Run one evaluation pass; return (avg_loss, accuracy)."""
+    model.eval()
+    total_loss, correct, total = 0.0, 0, 0
+    with torch.no_grad():
+        for input_ids, labels in loader:
+            input_ids, labels = input_ids.to(device), labels.to(device)
+            out = model.forward(input_ids=input_ids, labels=labels)
+            total_loss += out['loss'].item() * input_ids.size(0)
+            preds = torch.argmax(out['logits'][:, -1, :], dim=-1)
+            correct += (preds == labels).sum().item()
+            total += labels.size(0)
+    return total_loss / dataset_len, correct / total
+
+
+def _log_delta_distribution(processor, words):
+    """Log the per-symbol delta frequency distribution."""
+    delta_labels = []
+    for i, delta in enumerate(processor.delta_values):
+        char = chr(ord('a') + i)
+        label = f"{char} (0%)" if delta == 0 else f"{char} ({'+' if delta > 0 else ''}{delta*100:.1f}%)"
+        delta_labels.append(label)
+
+    counts = {lbl: 0 for lbl in delta_labels}
+    for word in words:
+        for ch in word:
+            if ch.isalpha():
+                idx = ord(ch) - ord('a')
+                if 0 <= idx < len(delta_labels):
+                    counts[delta_labels[idx]] += 1
+
+    total = sum(counts.values())
+    logger.info(f"Total deltas: {total}")
+    for lbl, cnt in counts.items():
+        pct = cnt / total * 100 if total else 0
+        bar = '█' * int(pct / 2)
+        logger.info(f"  {lbl:15} {cnt:8} ({pct:6.2f}%) {bar}")
+
+
+def _log_confusion_matrices(eval_loader, model, vocab, processor, tickers, device):
+    """Collect predictions and log per-stock confusion matrices and accuracy summary."""
+    idx_to_word = {idx: word for word, idx in vocab.items()}
+    delta_letters = [chr(ord('a') + i) for i in range(len(processor.delta_values))]
+
+    all_true, all_pred = [], []
+    model.eval()
+    with torch.no_grad():
+        for input_ids, labels in eval_loader:
+            input_ids, labels = input_ids.to(device), labels.to(device)
+            out = model.forward(input_ids=input_ids, labels=labels)
+            preds = torch.argmax(out['logits'][:, -1, :], dim=-1)
+            all_true.extend(labels.cpu().numpy())
+            all_pred.extend(preds.cpu().numpy())
+
+    true_words = [idx_to_word.get(i, '?' * len(tickers)) for i in all_true]
+    pred_words = [idx_to_word.get(i, '?' * len(tickers)) for i in all_pred]
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info("PER-STOCK CONFUSION MATRICES (Letter-by-Letter Analysis)")
+    logger.info("=" * 60)
+
+    stock_accuracies = []
+    for pos, ticker in enumerate(tickers):
+        actual = [tw[pos] for tw, pw in zip(true_words, pred_words) if pos < len(tw) and pos < len(pw)]
+        predicted = [pw[pos] for tw, pw in zip(true_words, pred_words) if pos < len(tw) and pos < len(pw)]
+        if not actual:
+            continue
+
+        logger.info(f"  Actual letter distribution: {dict(sorted(Counter(actual).items()))}")
+
+        confusion = {a: {p: 0 for p in delta_letters} for a in delta_letters}
+        for a, p in zip(actual, predicted):
+            if a in confusion and p in delta_letters:
+                confusion[a][p] += 1
+
+        correct = sum(1 for a, p in zip(actual, predicted) if a == p)
+        acc = correct / len(actual)
+        stock_accuracies.append((ticker, acc))
+
+        logger.info(f"\n{ticker} (position {pos + 1}/{len(tickers)}) - Accuracy: {acc:.4f}")
+        header = "Actual\\Pred | " + " | ".join(f" {l} " for l in delta_letters) + " | Total"
+        sep = "-" * len(header)
+        logger.info(sep)
+        logger.info(header)
+        logger.info(sep)
+        for a in delta_letters:
+            row_total = sum(confusion[a].values())
+            if row_total:
+                row = " | ".join(f"{confusion[a][p]:3d}" for p in delta_letters)
+                logger.info(f"     {a}      | {row} | {row_total:5d}")
+        logger.info(sep)
+
+    logger.info("\n" + "=" * 60)
+    logger.info("SUMMARY: Per-Stock Accuracies")
+    logger.info("=" * 60)
+    for ticker, acc in sorted(stock_accuracies, key=lambda x: x[1], reverse=True):
+        logger.info(f"  {ticker:6s}: {acc:.4f}")
+    if stock_accuracies:
+        avg = sum(a for _, a in stock_accuracies) / len(stock_accuracies)
+        logger.info(f"\n  Average per-stock accuracy: {avg:.4f}")
+    logger.info("=" * 60)
+
+
+def main():
+    default_config = load_default_config()
+    user_config = {}
+
+    args = _build_arg_parser().parse_args()
+    if args.config:
+        user_config = load_config(args.config)
+    _merge_config(args, default_config, user_config)
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    logger.info(f"Using device: {device}")
+    logger.info("=" * 60)
+    logger.info("RUN PARAMETERS")
+    logger.info("=" * 60)
+    logger.info(f"Number of stocks:          {args.num_stocks}")
+    logger.info(f"Context window size:       {args.context_window_size}")
+    logger.info(f"Interval (minutes):        {args.interval}")
+    logger.info(f"Epochs:                    {args.epochs}")
+    logger.info(f"Batch size:                {args.batch_size}")
+    logger.info(f"Learning rate:             {args.learning_rate}")
+    if args.start_date or args.end_date:
+        logger.info(f"Quote date range:          {args.start_date or 'earliest'} to {args.end_date or 'latest'}")
+    logger.info("=" * 60)
+
+    # --- Database & stocks ---
+    logger.info("Connecting to database...")
+    db = StockDatabase(password=args.db_password)
+    db.connect()
+
+    stock_ids, random_stocks = _fetch_stocks(db, args)
+    random_stocks = _refresh_stock_names(db, stock_ids)
+    stock_ids = [s['id'] for s in random_stocks]
+
+    # --- Quotes ---
     logger.info("Fetching quote data...")
     if args.start_date or args.end_date:
         logger.info(f"  Date range: {args.start_date or 'earliest'} to {args.end_date or 'latest'}")
-    data_start_time = time.time()
+    data_start = time.time()
     quotes_dict = db.get_quotes_for_stocks(stock_ids, start_date=args.start_date, end_date=args.end_date)
-    
-    for stock_id, quotes in quotes_dict.items():
-        ticker = next((s['ticker'] for s in random_stocks if s['id'] == stock_id), 'Unknown')
+    for sid, quotes in quotes_dict.items():
+        ticker = next((s['ticker'] for s in random_stocks if s['id'] == sid), 'Unknown')
         logger.info(f"  {ticker}: {len(quotes)} quotes")
-    
-    # Filter out stocks with stale data (last quote > 30 days old)
+
     logger.info("Filtering stocks by data recency (max 30 days old)...")
     stock_ids, random_stocks, quotes_dict = filter_stocks_by_recency(
         db, stock_ids, random_stocks, quotes_dict, max_age_days=30
     )
-    
     logger.info(f"Using {len(stock_ids)} stocks after filtering:")
-    for stock in random_stocks:
-        ticker = stock['ticker']
-        stock_id = stock['id']
-        quote_count = len(quotes_dict.get(stock_id, []))
-        name = stock['name'] or 'N/A'
-        logger.info(f"  {ticker}: {quote_count} quotes - {name}")
-    
-    # 4. Process data
+    for s in random_stocks:
+        count = len(quotes_dict.get(s['id'], []))
+        logger.info(f"  {s['ticker']}: {count} quotes - {s['name'] or 'N/A'}")
+
+    # --- Data processing ---
     logger.info(f"Processing data with {args.interval}-minute intervals...")
-    
-    # Get delta ranges from args (already merged from CLI > user config > default config)
     delta_values = args.delta_ranges
     if delta_values is not None:
         logger.info(f"Using delta ranges: {delta_values}")
-    
     processor = PriceProcessor(interval_minutes=args.interval, delta_values=delta_values)
     words = processor.extract_words(quotes_dict, stock_ids)
-    
     logger.info(f"Generated {len(words)} words")
-    
-    # 5. Analyze vocabulary and delta distributions
+
     unique_count, unique_words = processor.count_unique_words(words)
-    logger.info(f"Unique words: {unique_count}")
-    logger.info(f"Vocabulary coverage: {unique_count / len(words) * 100:.2f}%")
-    
-    # Display top 10 most common price movement patterns
-    word_freq = Counter(words)
+    logger.info(f"Unique words: {unique_count}  ({unique_count / len(words) * 100:.2f}% vocabulary coverage)")
     logger.info("Top 10 most common price movement patterns:")
-    for word, count in word_freq.most_common(10):
-        pct = count / len(words) * 100
-        logger.info(f"  '{word}': {count:6} times ({pct:5.2f}%)")
-    
-    if len(words) == 0:
+    for word, count in Counter(words).most_common(10):
+        logger.info(f"  '{word}': {count:6} times ({count / len(words) * 100:5.2f}%)")
+
+    if not words:
         logger.error("No words generated. Check data alignment and timestamp coverage.")
         return
-    
-    # Compute delta frequency distributions
+
     logger.info(f"Delta frequency distributions ({args.interval}-minute intervals):")
-    
-    # Generate labels dynamically from processor's delta values
-    delta_labels = []
-    for i, delta in enumerate(processor.delta_values):
-        char = chr(ord('a') + i)
-        if delta == 0:
-            label = f"{char} (0%)"
-        elif delta > 0:
-            label = f"{char} (+{delta*100:.1f}%)"
-        else:
-            label = f"{char} ({delta*100:.1f}%)"
-        delta_labels.append(label)
-    
-    delta_counts = {label: 0 for label in delta_labels}
-    
-    for word in words:
-        for i, char in enumerate(word):
-            if char.isalpha():
-                delta_idx = ord(char) - ord('a')
-                if 0 <= delta_idx < len(delta_labels):
-                    delta_counts[delta_labels[delta_idx]] += 1
-    
-    total_deltas = sum(delta_counts.values())
-    logger.info(f"Total deltas: {total_deltas}")
-    logger.info("Distribution:")
-    for label, count in delta_counts.items():
-        pct = (count / total_deltas * 100) if total_deltas > 0 else 0
-        bar_length = int(pct / 2)  # Scale to ~50 chars max
-        bar = '█' * bar_length
-        logger.info(f"  {label:15} {count:8} ({pct:6.2f}%) {bar}")
-    
-    # 6. Create dataset and vocab
+    _log_delta_distribution(processor, words)
+
+    # --- Dataset & model ---
     vocab = {word: idx for idx, word in enumerate(sorted(unique_words))}
     dataset = StockWordDataset(words=words, vocab=vocab, context_window_size=args.context_window_size)
-    
     logger.info(f"Created dataset with {len(dataset)} sequences")
-    
-    if len(dataset) == 0:
+    if not dataset:
         logger.error("Dataset is empty. Need more data or shorter sequence length.")
         return
-    
-    # 7. Split dataset into train/eval
-    # Use last 15% of sequences for evaluation (maintains temporal ordering)
-    eval_split = int(len(dataset) * 0.85)
-    train_dataset = torch.utils.data.Subset(dataset, range(0, eval_split))
-    eval_dataset = torch.utils.data.Subset(dataset, range(eval_split, len(dataset)))
-    
+
+    split = int(len(dataset) * 0.85)
+    train_dataset = torch.utils.data.Subset(dataset, range(0, split))
+    eval_dataset = torch.utils.data.Subset(dataset, range(split, len(dataset)))
     logger.info(f"Train sequences: {len(train_dataset)}, Eval sequences: {len(eval_dataset)}")
-    
-    # 8. Initialize model
-    data_elapsed = time.time() - data_start_time
-    logger.info(f"Data preparation completed in {data_elapsed:.2f} seconds ({data_elapsed/60:.2f} minutes)")
-    
-    model_start_time = time.time()
+
+    data_elapsed = time.time() - data_start
+    logger.info(f"Data preparation: {data_elapsed:.1f}s ({data_elapsed/60:.2f} min)")
+
     model = StockTransformerModel(
         vocab_size=len(vocab),
         max_position_embeddings=args.max_position_embeddings,
         hidden_size=args.hidden_size,
         num_hidden_layers=args.num_hidden_layers,
         num_attention_heads=args.num_attention_heads,
-        device=device
+        device=device,
     )
-    
-    # Compute class weights from training data if enabled
+
     if args.use_class_weights:
         logger.info("Computing class weights from training data...")
-        # Count class frequencies in training set
-        class_counts = torch.zeros(len(vocab))
-        for idx in range(len(train_dataset)):
-            _, label = train_dataset[idx]
-            class_counts[label.item()] += 1
-        
-        # Compute inverse frequency weights only for classes with samples
-        # Use log(1/frequency + 1) for moderate weighting - less extreme than 1/frequency
-        total_samples = class_counts.sum()
-        num_classes_with_samples = (class_counts > 0).sum().item()
-        
-        class_weights = torch.zeros(len(vocab))
-        mask = class_counts > 0
-        
-        # Log-based weighting: log(1/freq + 1) gives smoother weights
-        # Ratio between max and min weights is typically ~10x instead of ~1000x
-        frequencies = class_counts[mask] / total_samples
-        class_weights[mask] = torch.log(1.0 / frequencies + 1)
-        
-        # Normalize so mean of non-zero weights is 1.0
-        non_zero_mean = class_weights[mask].mean()
-        if non_zero_mean > 0:
-            class_weights[mask] = class_weights[mask] / non_zero_mean
-        
-        # Log class distribution and weights (show most common classes)
-        logger.info(f"Class distribution in training set ({num_classes_with_samples} classes with samples):")
-        # Sort by count descending to show most common classes
-        counts_with_idx = [(int(class_counts[idx].item()), word, idx) for word, idx in vocab.items() if class_counts[idx] > 0]
-        counts_with_idx.sort(reverse=True)
-        for count, word, idx in counts_with_idx[:20]:
-            weight = class_weights[idx].item()
-            pct = count / total_samples.item() * 100 if total_samples > 0 else 0
-            logger.info(f"  Class {idx} ('{word}'): {count:6} samples ({pct:5.2f}%), weight={weight:.4f}")
-        if num_classes_with_samples > 20:
-            logger.info(f"  ... and {num_classes_with_samples - 20} more classes with samples")
-        
-        logger.info(f"Weight range: min={class_weights[mask].min():.4f}, max={class_weights[mask].max():.4f}")
-        model.set_class_weights(class_weights)
+        weights = _compute_class_weights(train_dataset, len(vocab), device)
+        mask = weights > 0
+        logger.info(f"Weight range: min={weights[mask].min():.4f}, max={weights[mask].max():.4f}")
+        model.set_class_weights(weights)
     else:
         logger.info("Class weighting disabled")
-    
-    # 9. Training
+
+    # --- Training ---
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=custom_collate_fn)
     eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=custom_collate_fn)
     optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    
+
     logger.info(f"Starting training for {args.epochs} epochs...")
     if args.early_stopping_patience > 0:
-        logger.info(f"Early stopping enabled with patience={args.early_stopping_patience}")
-    
+        logger.info(f"Early stopping patience: {args.early_stopping_patience}")
+
     best_eval_loss = float('inf')
     best_model_state = None
     epochs_without_improvement = 0
-    actual_epochs = 0
-    
+    model_start = time.time()
+
     model.train()
     for epoch in range(args.epochs):
-        actual_epochs = epoch + 1
-        # Training phase
         epoch_loss = 0.0
-        for batch_idx, (input_ids, labels) in enumerate(train_loader):
+        for input_ids, labels in train_loader:
             optimizer.zero_grad()
-            input_ids = input_ids.to(device)
-            labels = labels.to(device)
-            outputs = model.forward(input_ids=input_ids, labels=labels)
-            loss = outputs['loss']
-            loss.backward()
+            input_ids, labels = input_ids.to(device), labels.to(device)
+            out = model.forward(input_ids=input_ids, labels=labels)
+            out['loss'].backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimizer.step()
-            epoch_loss += loss.item()
-        
+            epoch_loss += out['loss'].item()
+
         avg_train_loss = epoch_loss / len(train_loader)
-        logger.info(f"Epoch {epoch+1}/{args.epochs} - Train Loss: {avg_train_loss:.4f}")
-        
-        # Evaluation phase
-        model.eval()
-        eval_loss = 0.0
-        eval_correct = 0
-        eval_total = 0
-        
-        with torch.no_grad():
-            for input_ids, labels in eval_loader:
-                input_ids = input_ids.to(device)
-                labels = labels.to(device)
-                outputs = model.forward(input_ids=input_ids, labels=labels)
-                eval_loss += outputs['loss'].item() * input_ids.size(0)
-                
-                logits = outputs['logits']
-                predictions = torch.argmax(logits[:, -1, :], dim=-1)
-                eval_correct += (predictions == labels).sum().item()
-                eval_total += labels.size(0)
-        
-        avg_eval_loss = eval_loss / len(eval_dataset)
-        eval_accuracy = eval_correct / eval_total
-        
-        logger.info(f"Epoch {epoch+1}/{args.epochs} - Eval Loss: {avg_eval_loss:.4f}, Eval Accuracy: {eval_accuracy:.4f}")
-        
+        avg_eval_loss, eval_accuracy = _run_eval(model, eval_loader, len(eval_dataset), device)
+        logger.info(
+            f"Epoch {epoch+1}/{args.epochs} - Train Loss: {avg_train_loss:.4f} | "
+            f"Eval Loss: {avg_eval_loss:.4f} | Eval Accuracy: {eval_accuracy:.4f}"
+        )
+
         if avg_eval_loss < best_eval_loss:
             best_eval_loss = avg_eval_loss
             epochs_without_improvement = 0
-            # Save best model state
             best_model_state = {k: v.cpu().clone() for k, v in model.get_model().state_dict().items()}
-            logger.info(f"  ✓ Best eval loss improved to {best_eval_loss:.4f}")
+            logger.info(f"  ✓ New best eval loss: {best_eval_loss:.4f}")
         else:
             epochs_without_improvement += 1
             logger.info(f"  No improvement for {epochs_without_improvement} epoch(s)")
-        
-        # Early stopping check
+
         if args.early_stopping_patience > 0 and epochs_without_improvement >= args.early_stopping_patience:
-            logger.info(f"Early stopping triggered after {epoch + 1} epochs (no improvement for {args.early_stopping_patience} epochs)")
+            logger.info(f"Early stopping after epoch {epoch + 1}")
             break
-        
         model.train()
-    
-    # Restore best model weights if we have them
+
     if best_model_state is not None:
         model.get_model().load_state_dict(best_model_state)
-        logger.info(f"Restored best model weights (eval loss: {best_eval_loss:.4f})")
-    
-    # Final evaluation on eval set
-    training_elapsed = time.time() - model_start_time
-    logger.info(f"Model training completed in {training_elapsed:.2f} seconds ({training_elapsed/60:.2f} minutes)")
-    
-    logger.info("="*60)
-    logger.info("FINAL EVALUATION ON HELD-OUT EVAL SET")
-    logger.info("="*60)
-    
-    model.eval()
-    eval_loss = 0.0
-    eval_correct = 0
-    eval_total = 0
-    
-    with torch.no_grad():
-        for input_ids, labels in eval_loader:
-            input_ids = input_ids.to(device)
-            labels = labels.to(device)
-            outputs = model.forward(input_ids=input_ids, labels=labels)
-            eval_loss += outputs['loss'].item() * input_ids.size(0)
-            
-            logits = outputs['logits']
-            predictions = torch.argmax(logits[:, -1, :], dim=-1)
-            eval_correct += (predictions == labels).sum().item()
-            eval_total += labels.size(0)
-    
-    final_eval_loss = eval_loss / len(eval_dataset)
-    final_eval_accuracy = eval_correct / eval_total
+        logger.info(f"Restored best model (eval loss: {best_eval_loss:.4f})")
+
+    training_elapsed = time.time() - model_start
+    logger.info(f"Training: {training_elapsed:.1f}s ({training_elapsed/60:.2f} min)")
+
+    # --- Final evaluation ---
+    final_eval_loss, final_eval_accuracy = _run_eval(model, eval_loader, len(eval_dataset), device)
     final_perplexity = np.exp(final_eval_loss)
-    
-    logger.info(f"Final Eval Loss: {final_eval_loss:.4f}")
+    logger.info("=" * 60)
+    logger.info("FINAL EVALUATION ON HELD-OUT EVAL SET")
+    logger.info("=" * 60)
+    logger.info(f"Final Eval Loss:     {final_eval_loss:.4f}")
     logger.info(f"Final Eval Accuracy: {final_eval_accuracy:.4f}")
-    logger.info(f"Final Perplexity: {final_perplexity:.4f}")
-    logger.info("="*60)
-    
-    # Get tickers for confusion matrix and model filename
-    tickers = [stock['ticker'] for stock in random_stocks]
-    
-    # Generate per-stock confusion matrices
-    logger.info("")
-    logger.info("="*60)
-    logger.info("PER-STOCK CONFUSION MATRICES (Letter-by-Letter Analysis)")
-    logger.info("="*60)
-    
-    # Collect predicted and actual words
-    all_true_indices = []
-    all_pred_indices = []
-    with torch.no_grad():
-        for input_ids, labels in eval_loader:
-            input_ids = input_ids.to(device)
-            labels = labels.to(device)
-            outputs = model.forward(input_ids=input_ids, labels=labels)
-            logits = outputs['logits']
-            predictions = torch.argmax(logits[:, -1, :], dim=-1)
-            all_true_indices.extend(labels.cpu().numpy())
-            all_pred_indices.extend(predictions.cpu().numpy())
-    
-    # Create reverse vocab mapping (index -> word)
-    idx_to_word = {idx: word for word, idx in vocab.items()}
-    
-    # Convert indices to words
-    true_words = [idx_to_word.get(idx, '?'*len(tickers)) for idx in all_true_indices]
-    pred_words = [idx_to_word.get(idx, '?'*len(tickers)) for idx in all_pred_indices]
-    
-    # Get the letters used (typically a-g)
-    delta_letters = [chr(ord('a') + i) for i in range(len(processor.delta_values))]
-    
-    # For each stock position, build confusion matrix
-    num_stocks = len(tickers)
-    for stock_idx, ticker in enumerate(tickers):
-        # Collect actual and predicted letters for this stock position
-        actual_letters = []
-        predicted_letters = []
-        
-        for true_word, pred_word in zip(true_words, pred_words):
-            if stock_idx < len(true_word) and stock_idx < len(pred_word):
-                actual_letters.append(true_word[stock_idx])
-                predicted_letters.append(pred_word[stock_idx])
-        
-        if not actual_letters:
-            continue
-        
-        # Debug: Show distribution of actual letters for this stock
-        actual_dist = Counter(actual_letters)
-        logger.info(f"  Actual letter distribution: {dict(sorted(actual_dist.items()))}")
-        
-        # Build confusion matrix
-        # Rows = actual, Columns = predicted
-        confusion = {actual: {pred: 0 for pred in delta_letters} for actual in delta_letters}
-        
-        for actual, predicted in zip(actual_letters, predicted_letters):
-            if actual in confusion and predicted in delta_letters:
-                confusion[actual][predicted] += 1
-            elif actual not in confusion:
-                logger.warning(f"  Unknown actual letter '{actual}' not in delta_letters {delta_letters}")
-        
-        # Calculate per-stock accuracy
-        correct = sum(1 for a, p in zip(actual_letters, predicted_letters) if a == p)
-        stock_accuracy = correct / len(actual_letters) if actual_letters else 0
-        
-        logger.info(f"\n{ticker} (position {stock_idx + 1}/{num_stocks}) - Accuracy: {stock_accuracy:.4f}")
-        
-        # Print confusion matrix header
-        header = "Actual\\Pred | " + " | ".join(f" {l} " for l in delta_letters) + " | Total"
-        logger.info("-" * len(header))
-        logger.info(header)
-        logger.info("-" * len(header))
-        
-        # Print each row
-        for actual in delta_letters:
-            row_total = sum(confusion[actual].values())
-            if row_total > 0:  # Only show rows with data
-                row_values = " | ".join(f"{confusion[actual][pred]:3d}" for pred in delta_letters)
-                logger.info(f"     {actual}      | {row_values} | {row_total:5d}")
-        
-        logger.info("-" * len(header))
-    
-    # Summary statistics across all stocks
-    logger.info("\n" + "="*60)
-    logger.info("SUMMARY: Per-Stock Accuracies")
-    logger.info("="*60)
-    
-    stock_accuracies = []
-    for stock_idx, ticker in enumerate(tickers):
-        actual_letters = [true_words[i][stock_idx] for i in range(len(true_words)) 
-                         if stock_idx < len(true_words[i]) and stock_idx < len(pred_words[i])]
-        predicted_letters = [pred_words[i][stock_idx] for i in range(len(pred_words))
-                            if stock_idx < len(true_words[i]) and stock_idx < len(pred_words[i])]
-        
-        if actual_letters:
-            correct = sum(1 for a, p in zip(actual_letters, predicted_letters) if a == p)
-            acc = correct / len(actual_letters)
-            stock_accuracies.append((ticker, acc))
-    
-    # Sort by accuracy
-    stock_accuracies.sort(key=lambda x: x[1], reverse=True)
-    for ticker, acc in stock_accuracies:
-        logger.info(f"  {ticker:6s}: {acc:.4f}")
-    
-    if stock_accuracies:
-        avg_stock_acc = sum(acc for _, acc in stock_accuracies) / len(stock_accuracies)
-        logger.info(f"\n  Average per-stock accuracy: {avg_stock_acc:.4f}")
-    
-    logger.info("="*60)
-    
+    logger.info(f"Final Perplexity:    {final_perplexity:.4f}")
+    logger.info("=" * 60)
+
+    tickers = [s['ticker'] for s in random_stocks]
+    _log_confusion_matrices(eval_loader, model, vocab, processor, tickers, device)
+
     logger.info("Analysis complete!")
-    
-    # Create output directory for saved artifacts
+
+    # --- Save artifacts ---
     output_dir = log_dir / "output"
     output_dir.mkdir(exist_ok=True)
-    
-    # Create models directory for saved models (at same level as logs)
     models_dir = Path(__file__).parent / 'models'
     models_dir.mkdir(exist_ok=True)
-    
-    # Save artifacts if requested
+
+    config = user_config if user_config else default_config
+
     if args.save_model:
-        save_model(model, models_dir, logger, tickers=tickers, config=config, args=args, log_file=log_file, delta_values=delta_values)
-    
+        save_model(model, models_dir, logger, tickers=tickers, config=config, args=args,
+                   log_file=log_file, delta_values=delta_values)
     if args.save_vocabulary:
         save_vocabulary(vocab, output_dir, logger)
-    
     if args.save_predictions:
-        # Collect predictions from final eval
-        all_true = []
-        all_pred = []
+        _, preds_true, preds_pred = [], [], []
+        model.eval()
         with torch.no_grad():
             for input_ids, labels in eval_loader:
-                input_ids = input_ids.to(device)
-                labels = labels.to(device)
-                outputs = model.forward(input_ids=input_ids, labels=labels)
-                logits = outputs['logits']
-                predictions = torch.argmax(logits[:, -1, :], dim=-1)
-                all_true.extend(labels.cpu().numpy())
-                all_pred.extend(predictions.cpu().numpy())
-        
-        predictions_dict = {
-            'true_labels': all_true,
-            'pred_labels': all_pred,
-            'accuracy': final_eval_accuracy
-        }
-        save_predictions(predictions_dict, output_dir, logger)
-    
+                input_ids, labels = input_ids.to(device), labels.to(device)
+                out = model.forward(input_ids=input_ids, labels=labels)
+                p = torch.argmax(out['logits'][:, -1, :], dim=-1)
+                preds_true.extend(labels.cpu().numpy())
+                preds_pred.extend(p.cpu().numpy())
+        save_predictions({'true_labels': preds_true, 'pred_labels': preds_pred,
+                          'accuracy': final_eval_accuracy}, output_dir, logger)
     if args.plot_results:
-        training_history_dict = {
-            'epochs': list(range(1, args.epochs + 1)),
-            'losses': []  # Would need to track this during training
-        }
-        eval_history_dict = {
-            'epochs': list(range(1, args.epochs + 1)),
-            'losses': [],  # Would need to track this during training
-            'accuracies': []  # Would need to track this during training
-        }
-        plot_results(training_history_dict, eval_history_dict, output_dir, logger)
+        plot_results({'epochs': [], 'losses': []}, {'epochs': [], 'losses': [], 'accuracies': []},
+                     output_dir, logger)
+
     db.close()
 
 
