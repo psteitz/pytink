@@ -543,6 +543,68 @@ def _run_eval(model, loader, dataset_len, device):
     return total_loss / dataset_len, correct / total
 
 
+def train_and_evaluate(
+    model,
+    train_loader,
+    eval_loader,
+    eval_dataset_len,
+    epochs,
+    learning_rate,
+    weight_decay,
+    early_stopping_patience,
+    device,
+):
+    """Train *model* with early stopping; return ``(final_eval_loss, final_eval_accuracy)``.
+
+    The model's weights are updated in-place and the best checkpoint is
+    restored before the final evaluation pass.
+    """
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+
+    best_eval_loss = float('inf')
+    best_model_state = None
+    epochs_without_improvement = 0
+
+    model.train()
+    for epoch in range(epochs):
+        epoch_loss = 0.0
+        for input_ids, labels in train_loader:
+            optimizer.zero_grad()
+            input_ids, labels = input_ids.to(device), labels.to(device)
+            out = model.forward(input_ids=input_ids, labels=labels)
+            out['loss'].backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            optimizer.step()
+            epoch_loss += out['loss'].item()
+
+        avg_train_loss = epoch_loss / len(train_loader)
+        avg_eval_loss, eval_accuracy = _run_eval(model, eval_loader, eval_dataset_len, device)
+        logger.info(
+            "Epoch %d/%d - Train Loss: %.4f | Eval Loss: %.4f | Eval Accuracy: %.4f",
+            epoch + 1, epochs, avg_train_loss, avg_eval_loss, eval_accuracy,
+        )
+
+        if avg_eval_loss < best_eval_loss:
+            best_eval_loss = avg_eval_loss
+            epochs_without_improvement = 0
+            best_model_state = {k: v.cpu().clone() for k, v in model.get_model().state_dict().items()}
+            logger.info("  ✓ New best eval loss: %.4f", best_eval_loss)
+        else:
+            epochs_without_improvement += 1
+            logger.info("  No improvement for %d epoch(s)", epochs_without_improvement)
+
+        if early_stopping_patience > 0 and epochs_without_improvement >= early_stopping_patience:
+            logger.info("Early stopping after epoch %d", epoch + 1)
+            break
+        model.train()
+
+    if best_model_state is not None:
+        model.get_model().load_state_dict(best_model_state)
+        logger.info("Restored best model (eval loss: %.4f)", best_eval_loss)
+
+    return _run_eval(model, eval_loader, eval_dataset_len, device)
+
+
 def _log_delta_distribution(processor, words):
     """Log the per-symbol delta frequency distribution."""
     delta_labels = []
@@ -743,59 +805,26 @@ def main():
     # --- Training ---
     train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=custom_collate_fn)
     eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=custom_collate_fn)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
     logger.info(f"Starting training for {args.epochs} epochs...")
     if args.early_stopping_patience > 0:
         logger.info(f"Early stopping patience: {args.early_stopping_patience}")
 
-    best_eval_loss = float('inf')
-    best_model_state = None
-    epochs_without_improvement = 0
     model_start = time.time()
-
-    model.train()
-    for epoch in range(args.epochs):
-        epoch_loss = 0.0
-        for input_ids, labels in train_loader:
-            optimizer.zero_grad()
-            input_ids, labels = input_ids.to(device), labels.to(device)
-            out = model.forward(input_ids=input_ids, labels=labels)
-            out['loss'].backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
-            epoch_loss += out['loss'].item()
-
-        avg_train_loss = epoch_loss / len(train_loader)
-        avg_eval_loss, eval_accuracy = _run_eval(model, eval_loader, len(eval_dataset), device)
-        logger.info(
-            f"Epoch {epoch+1}/{args.epochs} - Train Loss: {avg_train_loss:.4f} | "
-            f"Eval Loss: {avg_eval_loss:.4f} | Eval Accuracy: {eval_accuracy:.4f}"
-        )
-
-        if avg_eval_loss < best_eval_loss:
-            best_eval_loss = avg_eval_loss
-            epochs_without_improvement = 0
-            best_model_state = {k: v.cpu().clone() for k, v in model.get_model().state_dict().items()}
-            logger.info(f"  ✓ New best eval loss: {best_eval_loss:.4f}")
-        else:
-            epochs_without_improvement += 1
-            logger.info(f"  No improvement for {epochs_without_improvement} epoch(s)")
-
-        if args.early_stopping_patience > 0 and epochs_without_improvement >= args.early_stopping_patience:
-            logger.info(f"Early stopping after epoch {epoch + 1}")
-            break
-        model.train()
-
-    if best_model_state is not None:
-        model.get_model().load_state_dict(best_model_state)
-        logger.info(f"Restored best model (eval loss: {best_eval_loss:.4f})")
-
+    final_eval_loss, final_eval_accuracy = train_and_evaluate(
+        model=model,
+        train_loader=train_loader,
+        eval_loader=eval_loader,
+        eval_dataset_len=len(eval_dataset),
+        epochs=args.epochs,
+        learning_rate=args.learning_rate,
+        weight_decay=args.weight_decay,
+        early_stopping_patience=args.early_stopping_patience,
+        device=device,
+    )
     training_elapsed = time.time() - model_start
     logger.info(f"Training: {training_elapsed:.1f}s ({training_elapsed/60:.2f} min)")
 
-    # --- Final evaluation ---
-    final_eval_loss, final_eval_accuracy = _run_eval(model, eval_loader, len(eval_dataset), device)
     final_perplexity = np.exp(final_eval_loss)
     logger.info("=" * 60)
     logger.info("FINAL EVALUATION ON HELD-OUT EVAL SET")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Model farming: generates, trains, and evaluates random stock prediction models,
-keeping a pool of the best performers for use in making stock selections.
+keeping a pool of the best performers.
 
 Usage:
     python -m pytink.farming --db-password YOUR_PASSWORD
@@ -19,7 +19,6 @@ from typing import List, Dict, Tuple, Optional
 
 import pandas as pd
 import torch
-import torch.optim as optim
 from torch.utils.data import DataLoader
 import numpy as np
 
@@ -28,6 +27,7 @@ MODELS_PARQUET_PATH = Path(__file__).parent.parent.parent / "models.parquet"
 from pytink.database import StockDatabase
 from pytink.processor import PriceProcessor
 from pytink.model import StockWordDataset, StockTransformerModel, custom_collate_fn
+from pytink.train_model import train_and_evaluate
 
 logger = logging.getLogger(__name__)
 
@@ -262,81 +262,18 @@ class ModelFarm:
             max_position_embeddings=MAX_POSITION_EMBEDDINGS,
             device=self.device,
         )
-        optimizer = optim.Adam(
-            model.parameters(),
-            lr=self.learning_rate,
+
+        final_loss, final_accuracy = train_and_evaluate(
+            model=model,
+            train_loader=train_loader,
+            eval_loader=eval_loader,
+            eval_dataset_len=len(eval_subset),
+            epochs=self.epochs,
+            learning_rate=self.learning_rate,
             weight_decay=self.weight_decay,
+            early_stopping_patience=self.early_stopping_patience,
+            device=self.device,
         )
-
-        # Training loop with early stopping
-        best_eval_loss = float("inf")
-        best_state: Optional[Dict] = None
-        epochs_no_improvement = 0
-
-        model.train()
-        for epoch in range(self.epochs):
-            for input_ids, labels in train_loader:
-                optimizer.zero_grad()
-                input_ids = input_ids.to(self.device)
-                labels = labels.to(self.device)
-                loss = model.forward(input_ids=input_ids, labels=labels)["loss"]
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-                optimizer.step()
-
-            # Epoch-end evaluation (for early stopping)
-            model.eval()
-            epoch_loss = 0.0
-            with torch.no_grad():
-                for input_ids, labels in eval_loader:
-                    input_ids = input_ids.to(self.device)
-                    labels = labels.to(self.device)
-                    out = model.forward(input_ids=input_ids, labels=labels)
-                    epoch_loss += out["loss"].item() * input_ids.size(0)
-
-            avg_epoch_loss = epoch_loss / len(eval_subset)
-
-            if avg_epoch_loss < best_eval_loss:
-                best_eval_loss = avg_epoch_loss
-                epochs_no_improvement = 0
-                best_state = {
-                    k: v.cpu().clone()
-                    for k, v in model.get_model().state_dict().items()
-                }
-            else:
-                epochs_no_improvement += 1
-
-            if (self.early_stopping_patience > 0
-                    and epochs_no_improvement >= self.early_stopping_patience):
-                logger.debug(
-                    "  Early stopping at epoch %d/%d", epoch + 1, self.epochs
-                )
-                break
-
-            model.train()
-
-        # Restore best checkpoint
-        if best_state is not None:
-            model.get_model().load_state_dict(best_state)
-
-        # Final evaluation
-        model.eval()
-        total_loss = 0.0
-        correct = 0
-        total = 0
-
-        with torch.no_grad():
-            for input_ids, labels in eval_loader:
-                input_ids = input_ids.to(self.device)
-                labels = labels.to(self.device)
-                out = model.forward(input_ids=input_ids, labels=labels)
-                total_loss += out["loss"].item() * input_ids.size(0)
-                preds = torch.argmax(out["logits"][:, -1, :], dim=-1)
-                correct += (preds == labels).sum().item()
-                total += labels.size(0)
-
-        final_loss = total_loss / len(eval_subset)
-        final_accuracy = correct / total if total > 0 else 0.0
 
         logger.info(
             "  -> loss=%.4f  accuracy=%.4f  words=%d",
