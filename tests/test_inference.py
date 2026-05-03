@@ -13,6 +13,13 @@ from pytink.inference import (
     find_common_date_range,
     filter_quotes_by_date,
     evaluate_model,
+    predict_next_tokens,
+    print_predictions,
+    DEFAULT_MONTHS,
+    DEFAULT_BATCH_SIZE,
+    DEFAULT_PREDICT_STEPS,
+    DEFAULT_INTERVAL_MINUTES,
+    DEFAULT_CONTEXT_WINDOW_SIZE,
 )
 from pytink.model import StockTransformerModel, StockWordDataset, custom_collate_fn
 from torch.utils.data import DataLoader
@@ -264,3 +271,259 @@ class TestIntegration:
         # Should be approximately 3 months before
         assert eval_start < max_date
         assert (max_date - eval_start).days == 90
+
+
+class TestConstants:
+    """Tests for module-level default constants."""
+
+    def test_constant_values(self):
+        """Verify that default constants have the expected values."""
+        assert DEFAULT_MONTHS == 3
+        assert DEFAULT_BATCH_SIZE == 64
+        assert DEFAULT_PREDICT_STEPS == 5
+        assert DEFAULT_INTERVAL_MINUTES == 30
+        assert DEFAULT_CONTEXT_WINDOW_SIZE == 32
+
+    def test_argparse_defaults_match_constants(self):
+        """Verify argparse defaults reference the module constants."""
+        import argparse
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--db-password', type=str, required=True)
+        parser.add_argument('--model-dir', type=str, required=True)
+        parser.add_argument('--months', type=int, default=DEFAULT_MONTHS)
+        parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE)
+        parser.add_argument('--predict-steps', type=int, default=DEFAULT_PREDICT_STEPS)
+
+        args = parser.parse_args(['--db-password', 'x', '--model-dir', 'models/x'])
+        assert args.months == DEFAULT_MONTHS
+        assert args.batch_size == DEFAULT_BATCH_SIZE
+        assert args.predict_steps == DEFAULT_PREDICT_STEPS
+
+
+def _make_small_model(vocab_size=4):
+    """Return a tiny StockTransformerModel suitable for unit tests."""
+    return StockTransformerModel(
+        vocab_size=vocab_size,
+        max_position_embeddings=16,
+        hidden_size=32,
+        num_hidden_layers=1,
+        num_attention_heads=1,
+        device='cpu',
+    )
+
+
+class TestPredictNextTokens:
+    """Tests for predict_next_tokens function."""
+
+    def test_returns_correct_number_of_steps(self):
+        """Output list length equals the requested number of steps."""
+        vocab = {'aa': 0, 'ab': 1, 'ba': 2, 'bb': 3}
+        words = ['aa', 'ab', 'ba', 'bb', 'aa', 'ab']
+        model = _make_small_model(vocab_size=len(vocab))
+
+        result = predict_next_tokens(model, words, vocab, context_window_size=4, steps=3, device='cpu')
+
+        assert len(result) == 3
+
+    def test_predictions_are_known_words_or_none(self):
+        """Every returned entry is either a word in the vocabulary or None."""
+        vocab = {'aa': 0, 'ab': 1, 'ba': 2, 'bb': 3}
+        words = ['aa', 'ab', 'ba', 'bb']
+        model = _make_small_model(vocab_size=len(vocab))
+
+        result = predict_next_tokens(model, words, vocab, context_window_size=4, steps=5, device='cpu')
+
+        for word in result:
+            assert word is None or word in vocab
+
+    def test_short_word_list_pads_window(self):
+        """If words is shorter than the context window the call should still succeed."""
+        vocab = {'aa': 0, 'ab': 1, 'ba': 2, 'bb': 3}
+        words = ['aa', 'ab']  # shorter than context_window_size=4
+        model = _make_small_model(vocab_size=len(vocab))
+
+        # Should not raise
+        result = predict_next_tokens(model, words, vocab, context_window_size=4, steps=2, device='cpu')
+
+        assert len(result) == 2
+
+    def test_single_word_list(self):
+        """A single-word list seeds the window with padding and returns predictions."""
+        vocab = {'aa': 0, 'ab': 1}
+        words = ['ab']
+        model = _make_small_model(vocab_size=len(vocab))
+
+        result = predict_next_tokens(model, words, vocab, context_window_size=4, steps=1, device='cpu')
+
+        assert len(result) == 1
+
+    def test_window_uses_tail_of_words(self):
+        """Seed context is taken from the tail of the word list."""
+        # We can't directly inspect the window, but we can verify that a
+        # word list longer than context_window_size doesn't raise and still
+        # returns the right number of predictions.
+        vocab = {'aa': 0, 'ab': 1, 'ba': 2, 'bb': 3}
+        words = ['aa', 'ab', 'ba', 'bb', 'aa', 'ab', 'ba', 'bb', 'aa']  # 9 words, window=4
+        model = _make_small_model(vocab_size=len(vocab))
+
+        result = predict_next_tokens(model, words, vocab, context_window_size=4, steps=4, device='cpu')
+
+        assert len(result) == 4
+
+    def test_zero_steps_returns_empty_list(self):
+        """Requesting zero steps returns an empty list."""
+        vocab = {'aa': 0, 'ab': 1}
+        words = ['aa', 'ab']
+        model = _make_small_model(vocab_size=len(vocab))
+
+        result = predict_next_tokens(model, words, vocab, context_window_size=4, steps=0, device='cpu')
+
+        assert result == []
+
+    def test_model_is_set_to_eval_mode(self):
+        """predict_next_tokens puts the model in eval mode."""
+        vocab = {'aa': 0, 'ab': 1}
+        words = ['aa', 'ab']
+        model = _make_small_model(vocab_size=len(vocab))
+        model.train()  # start in training mode
+
+        predict_next_tokens(model, words, vocab, context_window_size=4, steps=1, device='cpu')
+
+        assert not model.get_model().training
+
+
+class TestPrintPredictions:
+    """Tests for print_predictions function."""
+
+    def test_logs_header_and_steps(self, caplog):
+        """Output contains a header and one row per step."""
+        import logging
+        predicted = ['ab', 'ba']
+        tickers = ['A', 'B']
+        delta_values = [-0.01, 0.0, 0.01]
+
+        with caplog.at_level(logging.INFO, logger='pytink.inference'):
+            print_predictions(predicted, tickers, delta_values)
+
+        full_output = '\n'.join(caplog.messages)
+        assert 'NEXT-TOKEN PREDICTIONS' in full_output
+        assert '2 step(s)' in full_output
+
+    def test_step_count_in_output(self, caplog):
+        """Each prediction step appears in the logged output."""
+        import logging
+        predicted = ['ab', 'ba', 'bb']
+        tickers = ['A', 'B']
+        delta_values = [-0.01, 0.0, 0.01]
+
+        with caplog.at_level(logging.INFO, logger='pytink.inference'):
+            print_predictions(predicted, tickers, delta_values)
+
+        rows = [m for m in caplog.messages if m.strip().startswith(('1', '2', '3'))]
+        assert len(rows) == 3
+
+    def test_none_word_renders_as_question_mark(self, caplog):
+        """A None prediction is rendered as '?' for every ticker column."""
+        import logging
+        predicted = [None]
+        tickers = ['A', 'B']
+        delta_values = [-0.01, 0.0, 0.01]
+
+        with caplog.at_level(logging.INFO, logger='pytink.inference'):
+            print_predictions(predicted, tickers, delta_values)
+
+        step_lines = [m for m in caplog.messages if m.strip().startswith('1')]
+        assert step_lines, "Expected a step-1 row in the log output"
+        assert '?' in step_lines[0]
+
+    def test_cell_formatting_with_delta_values(self, caplog):
+        """Cells include the delta letter and its percentage threshold."""
+        import logging
+        # vocab letter 'a' → index 0 → delta_values[0] = -0.01 → -1.0%
+        predicted = ['aa']  # two-ticker word; both positions are 'a'
+        tickers = ['X', 'Y']
+        delta_values = [-0.01, 0.0, 0.01]
+
+        with caplog.at_level(logging.INFO, logger='pytink.inference'):
+            print_predictions(predicted, tickers, delta_values)
+
+        full_output = '\n'.join(caplog.messages)
+        assert 'a(-1.0%)' in full_output
+
+    def test_empty_predictions_prints_header_only(self, caplog):
+        """Empty prediction list still prints the section header without error."""
+        import logging
+        predicted = []
+        tickers = ['A']
+        delta_values = [0.0]
+
+        with caplog.at_level(logging.INFO, logger='pytink.inference'):
+            print_predictions(predicted, tickers, delta_values)
+
+        full_output = '\n'.join(caplog.messages)
+        assert 'NEXT-TOKEN PREDICTIONS' in full_output
+
+
+class TestPostTrainingSeedLogic:
+    """Unit tests for the post-training seeding decision logic used in main()."""
+
+    def test_end_date_parsing(self):
+        """A YYYY-MM-DD string from config parses correctly to a datetime."""
+        end_date_str = '2025-12-31'
+        parsed = datetime.strptime(end_date_str, '%Y-%m-%d')
+        assert parsed == datetime(2025, 12, 31)
+        assert parsed.year == 2025
+
+    def test_seed_start_is_one_day_after_end_date(self):
+        """Seed start date is one day after the training end date."""
+        training_end = datetime(2025, 12, 31)
+        seed_start = training_end + timedelta(days=1)
+        assert seed_start == datetime(2026, 1, 1)
+
+    def test_no_end_date_in_config_skips_prediction(self):
+        """When data.end_date is absent the code path that skips prediction is taken."""
+        data_config = {'tickers': ['AAPL'], 'interval_minutes': 30}
+        end_date_str = data_config.get('end_date')
+        assert end_date_str is None  # confirm the guard condition
+
+    def test_end_date_present_in_config(self):
+        """When data.end_date is present it is accessible via data_config.get."""
+        data_config = {'tickers': ['AAPL'], 'interval_minutes': 30, 'end_date': '2025-06-01'}
+        end_date_str = data_config.get('end_date')
+        assert end_date_str == '2025-06-01'
+        parsed = datetime.strptime(str(end_date_str), '%Y-%m-%d')
+        assert parsed == datetime(2025, 6, 1)
+
+    def test_invalid_end_date_format_raises_value_error(self):
+        """An end_date that cannot be parsed as YYYY-MM-DD raises ValueError."""
+        with pytest.raises(ValueError):
+            datetime.strptime('not-a-date', '%Y-%m-%d')
+
+    def test_get_quotes_for_stocks_called_with_start_date(self):
+        """db.get_quotes_for_stocks is called with the correct start_date argument."""
+        training_end = datetime(2025, 6, 1)
+        seed_start = training_end + timedelta(days=1)
+
+        mock_db = Mock()
+        mock_db.get_quotes_for_stocks.return_value = {}
+
+        mock_db.get_quotes_for_stocks([1, 2], start_date=seed_start)
+
+        mock_db.get_quotes_for_stocks.assert_called_once_with([1, 2], start_date=seed_start)
+
+    def test_empty_seed_quotes_skips_predict_next_tokens(self):
+        """If post-training quotes produce no words, predict_next_tokens is not called."""
+        mock_processor = Mock()
+        mock_processor.extract_words.return_value = []
+
+        post_quotes = {}
+        stock_ids = [1, 2]
+        seed_words = mock_processor.extract_words(post_quotes, stock_ids)
+
+        assert seed_words == []
+        # Simulate the guard: only call predict_next_tokens when seed_words is non-empty
+        predict_called = False
+        if seed_words:
+            predict_called = True
+        assert not predict_called

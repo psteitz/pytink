@@ -195,7 +195,8 @@ def load_default_config():
         return {}
 
 
-def save_model(model, output_dir, logger, tickers=None, config=None, args=None, log_file=None, delta_values=None):
+def save_model(model, output_dir, logger, tickers=None, config=None, args=None, log_file=None, delta_values=None,
+               training_start_date=None, training_end_date=None):
     """Save trained model, config, and log file to a dedicated subdirectory.
     
     Directory structure: output_dir/<tickers>/<timestamp>/
@@ -210,6 +211,8 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
         args: Argument namespace with training parameters
         log_file: Path to the log file to copy
         delta_values: List of delta values used for encoding
+        training_start_date: Earliest quote timestamp included in the training data
+        training_end_date: Latest quote timestamp included in the training data
     """
     import shutil
     
@@ -262,6 +265,20 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
             },
         }
         
+        # Add actual training date range if available
+        if training_start_date is not None:
+            training_config['data']['start_date'] = (
+                training_start_date.strftime('%Y-%m-%d')
+                if isinstance(training_start_date, datetime)
+                else str(training_start_date)
+            )
+        if training_end_date is not None:
+            training_config['data']['end_date'] = (
+                training_end_date.strftime('%Y-%m-%d')
+                if isinstance(training_end_date, datetime)
+                else str(training_end_date)
+            )
+
         # Add tickers list if available, otherwise num_stocks
         if tickers:
             training_config['data']['tickers'] = sorted(tickers)
@@ -925,6 +942,19 @@ def main():
 
     logger.info("Analysis complete!")
 
+    # Determine actual quote date range included in training data
+    training_start_date = None
+    training_end_date = None
+    for quotes in quotes_dict.values():
+        for quote in quotes:
+            ts = quote['timestamp']
+            if isinstance(ts, str):
+                ts = datetime.fromisoformat(ts)
+            if training_start_date is None or ts < training_start_date:
+                training_start_date = ts
+            if training_end_date is None or ts > training_end_date:
+                training_end_date = ts
+
     # --- Save artifacts ---
     output_dir = log_dir / "output"
     output_dir.mkdir(exist_ok=True)
@@ -935,7 +965,8 @@ def main():
 
     if args.save_model:
         save_model(model, models_dir, logger, tickers=tickers, config=config, args=args,
-                   log_file=log_file, delta_values=delta_values)
+                   log_file=log_file, delta_values=processor.delta_values,
+                   training_start_date=training_start_date, training_end_date=training_end_date)
     if args.save_vocabulary:
         save_vocabulary(vocab, output_dir, logger)
     if args.save_predictions:

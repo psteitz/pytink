@@ -3,7 +3,7 @@
 Inference script to evaluate a trained model on recent data.
 
 Loads a model from a directory and evaluates its performance on data from
-the last 3 months (relative to the most recent date where all stocks have quotes).
+the last 3 months (configurable, relative to the most recent date where all stocks have quotes).
 
 This module contains only module-level functions; no classes are exported.
 
@@ -28,6 +28,16 @@ import numpy as np
 from pytink.database import StockDatabase
 from pytink.processor import PriceProcessor
 from pytink.model import StockWordDataset, StockTransformerModel, custom_collate_fn
+
+
+# Default values for command-line arguments
+DEFAULT_MONTHS = 3
+DEFAULT_BATCH_SIZE = 64
+DEFAULT_PREDICT_STEPS = 5
+
+# Default fallback values for config fields not present in a saved model config
+DEFAULT_INTERVAL_MINUTES = 30
+DEFAULT_CONTEXT_WINDOW_SIZE = 32
 
 
 # Setup logging
@@ -317,15 +327,107 @@ def print_results(metrics: dict, tickers: list):
         logger.info(f"Std accuracy: {np.std(accuracies):.4f}")
 
 
+def predict_next_tokens(model, words, vocab, context_window_size, steps, device):
+    """Autoregressively predict the next ``steps`` tokens using a context seed.
+
+    The last ``context_window_size`` words from ``words`` seed the first prediction.
+    At each step the predicted token is appended to the sliding context window so
+    that subsequent predictions build on prior ones.  ``words`` should contain
+    post-training data — i.e. quotes fetched after the model's training end date —
+    so that the seed reflects genuinely unseen market context.
+
+    Args:
+        model: Loaded StockTransformerModel
+        words: List of processed word strings used as the seed context.  The tail
+            of this list (last ``context_window_size`` entries) is used.
+        vocab: Dict mapping word string to integer token ID
+        context_window_size: Number of tokens in one model input window
+        steps: Number of future tokens to predict
+        device: Torch device string
+
+    Returns:
+        List of predicted word strings of length ``steps``.  An entry is None
+        when the predicted token ID has no corresponding word in the vocabulary.
+    """
+    idx_to_word = {idx: word for word, idx in vocab.items()}
+
+    # Seed: tail of the actual sequence, left-padded if shorter than the window
+    tail = words[-context_window_size:]
+    if len(tail) < context_window_size:
+        pad = tail[0] if tail else next(iter(vocab))
+        tail = [pad] * (context_window_size - len(tail)) + list(tail)
+    window = [vocab.get(w, 0) for w in tail]
+
+    predicted = []
+    model.eval()
+    with torch.no_grad():
+        for _ in range(steps):
+            input_ids = torch.tensor([window], dtype=torch.long).to(device)
+            outputs = model.forward(input_ids=input_ids)
+            next_id = torch.argmax(outputs['logits'][0, -1, :]).item()
+            predicted.append(idx_to_word.get(next_id))
+            window = window[1:] + [next_id]
+
+    return predicted
+
+
+def print_predictions(predicted_words, tickers, delta_values):
+    """Log a step-by-step table of autoregressive token predictions.
+
+    Each row is one prediction step; each column is one ticker.  Cells show the
+    predicted delta letter and its percentage threshold.
+
+    Args:
+        predicted_words: List of predicted word strings (one per step)
+        tickers: List of ticker symbols corresponding to word character positions
+        delta_values: List of delta threshold values used during training
+    """
+    def _cell(letter):
+        if letter is None or not letter.isalpha():
+            return '?'
+        idx = ord(letter) - ord('a')
+        if 0 <= idx < len(delta_values):
+            d = delta_values[idx]
+            pct = '0.0%' if d == 0 else f"{'+'if d > 0 else ''}{d * 100:.1f}%"
+            return f"{letter}({pct})"
+        return f"{letter}(?)"
+
+    sample_cells = [_cell(chr(ord('a') + i)) for i in range(len(delta_values))] if delta_values else ['?']
+    col_width = max(max(len(c) for c in sample_cells), max((len(t) for t in tickers), default=4)) + 2
+
+    logger.info("")
+    logger.info("=" * 60)
+    logger.info(f"NEXT-TOKEN PREDICTIONS ({len(predicted_words)} step(s))")
+    logger.info("=" * 60)
+    header_ticks = "".join(f"{t:>{col_width}}" for t in tickers)
+    logger.info(f"{'Step':>4}  {header_ticks}")
+    logger.info("-" * (6 + len(header_ticks)))
+
+    for step, word in enumerate(predicted_words, start=1):
+        if word is None:
+            cells = "".join(f"{'?':>{col_width}}" for _ in tickers)
+        else:
+            cells = "".join(
+                f"{_cell(word[pos] if pos < len(word) else None):>{col_width}}"
+                for pos in range(len(tickers))
+            )
+        logger.info(f"{step:>4}  {cells}")
+
+    logger.info("=" * 60)
+
+
 def main():
     """Entry point for the inference CLI."""
     parser = argparse.ArgumentParser(description='Evaluate trained stock prediction model')
     parser.add_argument('--db-password', type=str, required=True, help='Database password')
     parser.add_argument('--model-dir', type=str, required=True, 
-                        help='Path to model directory (e.g., models/AAPL-GOOGL/20260101_120000/)')
-    parser.add_argument('--months', type=int, default=3, 
-                        help='Number of months of recent data to evaluate (default: 3)')
-    parser.add_argument('--batch-size', type=int, default=64, help='Batch size for evaluation')
+                        help='Path to model directory (e.g., models/AAPL-GOOG/20260101_120000/)')
+    parser.add_argument('--months', type=int, default=DEFAULT_MONTHS,
+                        help=f'Number of months of recent data to evaluate (default: {DEFAULT_MONTHS})')
+    parser.add_argument('--batch-size', type=int, default=DEFAULT_BATCH_SIZE,
+                        help=f'Batch size for evaluation (default: {DEFAULT_BATCH_SIZE})')
+    parser.add_argument('--predict-steps', type=int, default=DEFAULT_PREDICT_STEPS,
+                        help=f'Number of future tokens to predict autoregressively (default: {DEFAULT_PREDICT_STEPS})')
     
     args = parser.parse_args()
     
@@ -346,8 +448,8 @@ def main():
     # Extract parameters from config
     data_config = config.get('data', {})
     tickers = data_config.get('tickers', [])
-    interval_minutes = data_config.get('interval_minutes', 30)
-    context_window_size = data_config.get('context_window_size', 32)
+    interval_minutes = data_config.get('interval_minutes', DEFAULT_INTERVAL_MINUTES)
+    context_window_size = data_config.get('context_window_size', DEFAULT_CONTEXT_WINDOW_SIZE)
     delta_values = config.get('delta_ranges', None)
     
     if not tickers:
@@ -464,7 +566,45 @@ def main():
         
         # Print results
         print_results(metrics, tickers)
-        
+
+        # Autoregressive next-token prediction seeded with post-training quotes
+        training_end_date_str = data_config.get('end_date')
+        if not training_end_date_str:
+            logger.warning(
+                "Model config has no data.end_date — cannot fetch post-training quotes for prediction. "
+                "Re-save the model with a recent version of train_model.py to populate this field."
+            )
+        else:
+            try:
+                training_end_date = datetime.strptime(str(training_end_date_str), '%Y-%m-%d')
+            except ValueError:
+                logger.error(f"Cannot parse data.end_date '{training_end_date_str}' as YYYY-MM-DD")
+                training_end_date = None
+
+            if training_end_date is not None:
+                seed_start_date = training_end_date + timedelta(days=1)
+                logger.info(
+                    f"Fetching post-training quotes (after {training_end_date.date()}) "
+                    f"to seed {args.predict_steps}-step prediction..."
+                )
+                seed_quotes = db.get_quotes_for_stocks(stock_ids, start_date=seed_start_date)
+                seed_words = processor.extract_words(seed_quotes, stock_ids)
+
+                if not seed_words:
+                    logger.warning(
+                        f"No post-training quotes found after {training_end_date.date()} — "
+                        "skipping next-token prediction."
+                    )
+                else:
+                    logger.info(
+                        f"Generated {len(seed_words)} seed word(s) from post-training quotes "
+                        f"(using last {context_window_size} as context window)."
+                    )
+                    predicted = predict_next_tokens(
+                        model, seed_words, vocab, context_window_size, args.predict_steps, device
+                    )
+                    print_predictions(predicted, tickers, processor.delta_values)
+
     finally:
         db.close()
 

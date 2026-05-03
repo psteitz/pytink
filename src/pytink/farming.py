@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """
-Model farming: generates, trains, and evaluates random stock prediction models,
-keeping a pool of the best performers.
+Model farming
+  Generate, train, and evaluate random stock prediction models
+  Keep a pool of the best performers
+  Update Parquet log of all models
+  Save individual trained models to disk
 
 Exported classes:
     ModelEntry  -- A trained model paired with its evaluation metrics and metadata.
