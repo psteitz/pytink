@@ -19,15 +19,13 @@ from typing import List, Dict, Tuple, Optional
 
 import pandas as pd
 import torch
-from torch.utils.data import DataLoader
 import numpy as np
 
 MODELS_PARQUET_PATH = Path(__file__).parent.parent.parent / "models.parquet"
 
 from pytink.database import StockDatabase
-from pytink.processor import PriceProcessor
-from pytink.model import StockWordDataset, StockTransformerModel, custom_collate_fn
-from pytink.train_model import train_and_evaluate
+from pytink.model import StockTransformerModel
+from pytink.train_model import prepare_data, train_and_evaluate
 
 logger = logging.getLogger(__name__)
 
@@ -216,42 +214,20 @@ class ModelFarm:
         stock_ids = valid_ids
         quotes_dict = {sid: quotes_dict[sid] for sid in stock_ids}
 
-        # Convert quotes → word sequences
-        processor = PriceProcessor(interval_minutes=self.interval_minutes)
-        words = processor.extract_words(quotes_dict, stock_ids)
-
-        if len(words) < self.context_window_size + 10:
-            logger.warning(
-                "  Only %d words generated — skipping (need > %d).",
-                len(words), self.context_window_size + 10,
-            )
-            return None
-
-        # Vocabulary and dataset
-        _, unique_words = processor.count_unique_words(words)
-        vocab = {word: idx for idx, word in enumerate(sorted(unique_words))}
-        dataset = StockWordDataset(
-            words=words, vocab=vocab,
+        prepared = prepare_data(
+            quotes_dict=quotes_dict,
+            stock_ids=stock_ids,
+            interval_minutes=self.interval_minutes,
             context_window_size=self.context_window_size,
+            batch_size=self.batch_size,
+            min_words=self.context_window_size + 10,
+            min_sequences=10,
         )
-
-        if len(dataset) < 10:
-            logger.warning("  Dataset too small (%d sequences) — skipping.", len(dataset))
+        if prepared is None:
             return None
-
-        # Temporal 85/15 train/eval split
-        split = int(len(dataset) * 0.85)
-        train_subset = torch.utils.data.Subset(dataset, range(0, split))
-        eval_subset = torch.utils.data.Subset(dataset, range(split, len(dataset)))
-
-        train_loader = DataLoader(
-            train_subset, batch_size=self.batch_size,
-            shuffle=True, collate_fn=custom_collate_fn,
-        )
-        eval_loader = DataLoader(
-            eval_subset, batch_size=self.batch_size,
-            shuffle=False, collate_fn=custom_collate_fn,
-        )
+        words, vocab = prepared.words, prepared.vocab
+        train_loader, eval_loader = prepared.train_loader, prepared.eval_loader
+        eval_subset = prepared.eval_subset
 
         # Initialise transformer model
         model = StockTransformerModel(

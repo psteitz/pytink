@@ -10,7 +10,7 @@ import time
 import json
 from pathlib import Path
 from datetime import datetime, timedelta
-from collections import Counter
+from collections import Counter, namedtuple
 
 try:
     import yaml
@@ -605,6 +605,85 @@ def train_and_evaluate(
     return _run_eval(model, eval_loader, eval_dataset_len, device)
 
 
+PreparedData = namedtuple(
+    'PreparedData',
+    ['processor', 'words', 'vocab', 'train_loader', 'eval_loader', 'train_subset', 'eval_subset'],
+)
+
+
+def prepare_data(
+    quotes_dict,
+    stock_ids,
+    interval_minutes,
+    context_window_size,
+    batch_size,
+    delta_values=None,
+    min_words=0,
+    min_sequences=0,
+):
+    """Convert a quotes dict into train/eval DataLoaders.
+
+    Args:
+        quotes_dict: dict mapping stock_id -> list of quote dicts.
+        stock_ids: ordered list of stock IDs to include.
+        interval_minutes: price-sampling interval for PriceProcessor.
+        context_window_size: sequence length for StockWordDataset.
+        batch_size: DataLoader batch size.
+        delta_values: optional custom delta thresholds for PriceProcessor.
+        min_words: return None when fewer words are generated.
+        min_sequences: return None when the dataset has fewer sequences.
+
+    Returns:
+        A PreparedData named tuple, or None if the data does not meet the
+        minimum size requirements.
+    """
+    processor = PriceProcessor(interval_minutes=interval_minutes, delta_values=delta_values)
+    words = processor.extract_words(quotes_dict, stock_ids)
+
+    if len(words) < min_words:
+        logger.warning(
+            "Only %d words generated (need >= %d) — skipping.", len(words), min_words
+        )
+        return None
+    if not words:
+        logger.warning("No words generated — skipping.")
+        return None
+
+    _, unique_words = processor.count_unique_words(words)
+    vocab = {word: idx for idx, word in enumerate(sorted(unique_words))}
+    dataset = StockWordDataset(words=words, vocab=vocab, context_window_size=context_window_size)
+
+    if len(dataset) < min_sequences:
+        logger.warning(
+            "Dataset too small (%d sequences, need >= %d) — skipping.", len(dataset), min_sequences
+        )
+        return None
+    if not dataset:
+        logger.warning("Dataset is empty — skipping.")
+        return None
+
+    split = int(len(dataset) * 0.85)
+    train_subset = torch.utils.data.Subset(dataset, range(0, split))
+    eval_subset = torch.utils.data.Subset(dataset, range(split, len(dataset)))
+
+    train_loader = DataLoader(
+        train_subset, batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn
+    )
+    eval_loader = DataLoader(
+        eval_subset, batch_size=batch_size, shuffle=False, collate_fn=custom_collate_fn
+    )
+
+    return PreparedData(
+        processor=processor,
+        words=words,
+        vocab=vocab,
+        train_loader=train_loader,
+        eval_loader=eval_loader,
+        train_subset=train_subset,
+        eval_subset=eval_subset,
+    )
+
+
 def _log_delta_distribution(processor, words):
     """Log the per-symbol delta frequency distribution."""
     delta_labels = []
@@ -751,34 +830,31 @@ def main():
     delta_values = args.delta_ranges
     if delta_values is not None:
         logger.info(f"Using delta ranges: {delta_values}")
-    processor = PriceProcessor(interval_minutes=args.interval, delta_values=delta_values)
-    words = processor.extract_words(quotes_dict, stock_ids)
-    logger.info(f"Generated {len(words)} words")
+    prepared = prepare_data(
+        quotes_dict=quotes_dict,
+        stock_ids=stock_ids,
+        interval_minutes=args.interval,
+        context_window_size=args.context_window_size,
+        batch_size=args.batch_size,
+        delta_values=delta_values,
+    )
+    if prepared is None:
+        logger.error("Data preparation failed — no words generated or dataset too small.")
+        return
+    processor, words, vocab = prepared.processor, prepared.words, prepared.vocab
+    train_dataset, eval_dataset = prepared.train_subset, prepared.eval_subset
+    train_loader, eval_loader = prepared.train_loader, prepared.eval_loader
 
-    unique_count, unique_words = processor.count_unique_words(words)
+    unique_count = len(vocab)
+    logger.info(f"Generated {len(words)} words")
     logger.info(f"Unique words: {unique_count}  ({unique_count / len(words) * 100:.2f}% vocabulary coverage)")
     logger.info("Top 10 most common price movement patterns:")
     for word, count in Counter(words).most_common(10):
         logger.info(f"  '{word}': {count:6} times ({count / len(words) * 100:5.2f}%)")
-
-    if not words:
-        logger.error("No words generated. Check data alignment and timestamp coverage.")
-        return
-
     logger.info(f"Delta frequency distributions ({args.interval}-minute intervals):")
     _log_delta_distribution(processor, words)
 
-    # --- Dataset & model ---
-    vocab = {word: idx for idx, word in enumerate(sorted(unique_words))}
-    dataset = StockWordDataset(words=words, vocab=vocab, context_window_size=args.context_window_size)
-    logger.info(f"Created dataset with {len(dataset)} sequences")
-    if not dataset:
-        logger.error("Dataset is empty. Need more data or shorter sequence length.")
-        return
-
-    split = int(len(dataset) * 0.85)
-    train_dataset = torch.utils.data.Subset(dataset, range(0, split))
-    eval_dataset = torch.utils.data.Subset(dataset, range(split, len(dataset)))
+    logger.info(f"Created dataset with {len(train_dataset) + len(eval_dataset)} sequences")
     logger.info(f"Train sequences: {len(train_dataset)}, Eval sequences: {len(eval_dataset)}")
 
     data_elapsed = time.time() - data_start
@@ -803,9 +879,6 @@ def main():
         logger.info("Class weighting disabled")
 
     # --- Training ---
-    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, collate_fn=custom_collate_fn)
-    eval_loader = DataLoader(eval_dataset, batch_size=args.batch_size, shuffle=False, collate_fn=custom_collate_fn)
-
     logger.info(f"Starting training for {args.epochs} epochs...")
     if args.early_stopping_patience > 0:
         logger.info(f"Early stopping patience: {args.early_stopping_patience}")
