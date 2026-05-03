@@ -1,4 +1,7 @@
-"""Utilities for analyzing and visualizing training results."""
+"""Utilities for analyzing and visualizing training results.
+
+This module contains only module-level functions; no classes are exported.
+"""
 import matplotlib.pyplot as plt
 import numpy as np
 from typing import Dict, List
@@ -90,6 +93,10 @@ def analyze_prediction_quality(predictions: Dict, threshold: float = 0.5):
     Args:
         predictions: Dictionary with 'input', 'true', 'pred', 'confidence' keys
         threshold: Confidence threshold for evaluation
+
+    Returns:
+        Dictionary with keys 'accuracy', 'high_conf_predictions', and
+        'high_conf_accuracy'.
     """
     total = len(predictions['true'])
     correct = sum(1 for t, p in zip(predictions['true'], predictions['pred']) if t == p)
@@ -114,14 +121,26 @@ def analyze_prediction_quality(predictions: Dict, threshold: float = 0.5):
 
 
 def save_vocabulary(vocab: Dict[str, int], filepath: str):
-    """Save vocabulary to JSON file."""
+    """Save vocabulary to JSON file.
+
+    Args:
+        vocab: Dictionary mapping word strings to token IDs.
+        filepath: Destination file path.
+    """
     with open(filepath, 'w') as f:
         json.dump(vocab, f, indent=2)
     print(f"Vocabulary saved to {filepath}")
 
 
 def load_vocabulary(filepath: str) -> Dict[str, int]:
-    """Load vocabulary from JSON file."""
+    """Load vocabulary from JSON file.
+
+    Args:
+        filepath: Path to a JSON file previously written by save_vocabulary.
+
+    Returns:
+        Dictionary mapping word strings to token IDs.
+    """
     with open(filepath, 'r') as f:
         vocab = json.load(f)
     return vocab

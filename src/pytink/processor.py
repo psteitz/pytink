@@ -1,4 +1,9 @@
-"""Data processing utilities for stock price deltas."""
+"""Data processing utilities for stock price deltas.
+
+Exported classes:
+    PriceProcessor  -- Converts raw stock quote data into symbol-word sequences
+                       representing quantized multi-stock price movements.
+"""
 from typing import List, Dict, Tuple, Set, Optional
 from datetime import datetime, timedelta, time, date
 import bisect
@@ -372,11 +377,18 @@ class PriceProcessor:
         stock_ids: List[int]
     ) -> List[str]:
         """Extract words using parallel processing across time segments.
-        
+
         Divides the time range into segments and processes each with a separate thread.
         Threads coordinate to avoid overlap and ensure consistency.
         Pre-parses timestamps for better binary search performance.
         Passes initial prices to each segment to avoid boundary data loss.
+
+        Args:
+            quotes_dict: Dictionary mapping stock_id to sorted list of quote dicts.
+            stock_ids: Ordered list of stock IDs to include in each word.
+
+        Returns:
+            Chronologically ordered list of word strings.
         """
         if not quotes_dict or not stock_ids:
             return []
@@ -486,13 +498,28 @@ class PriceProcessor:
         quotes_dict: Dict[int, List[Dict]],
         stock_ids: List[int]
     ) -> List[str]:
-        """Extract all words from quote data using optimized parallel processing."""
+        """Extract all words from quote data using optimized parallel processing.
+
+        Args:
+            quotes_dict: Dictionary mapping stock_id to sorted list of quote dicts.
+            stock_ids: Ordered list of stock IDs to include in each word.
+
+        Returns:
+            Chronologically ordered list of word strings.
+        """
         return self.extract_words_parallel(quotes_dict, stock_ids)
     
     def count_unique_words(
         self,
         words: List[str]
     ) -> Tuple[int, Set[str]]:
-        """Count unique words and return the set."""
+        """Count unique words and return the set.
+
+        Args:
+            words: List of word strings to analyse.
+
+        Returns:
+            Tuple of (count, unique_word_set).
+        """
         unique_words = set(words)
         return len(unique_words), unique_words

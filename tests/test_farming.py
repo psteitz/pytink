@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch, call
 from pytink.farming import (
     ModelEntry,
     ModelFarm,
+    DEFAULT_MODELS_DIR,
     HIDDEN_SIZE,
     NUM_HIDDEN_LAYERS,
     NUM_ATTENTION_HEADS,
@@ -399,3 +400,110 @@ class TestRunGeneration:
 
         accuracies = [m.eval_accuracy for m in farm.models]
         assert accuracies == sorted(accuracies, reverse=True)
+
+
+# ── ModelFarm.__init__ (new save_models params) ───────────────────────────────
+
+class TestModelFarmInit:
+    """Tests for the save_models and models_dir constructor parameters."""
+
+    def _make_farm(self, **kwargs):
+        with patch("pytink.farming.StockDatabase") as MockDB:
+            MockDB.return_value = MagicMock()
+            return ModelFarm(db_password="test", num_models=2, num_generations=1, **kwargs)
+
+    def test_save_models_defaults_to_true(self):
+        """save_models is True when not supplied."""
+        farm = self._make_farm()
+        assert farm.save_models is True
+
+    def test_save_models_false_stored(self):
+        """save_models=False is stored on the instance."""
+        farm = self._make_farm(save_models=False)
+        assert farm.save_models is False
+
+    def test_models_dir_defaults_to_default_models_dir(self):
+        """models_dir falls back to DEFAULT_MODELS_DIR when not supplied."""
+        farm = self._make_farm()
+        assert farm.models_dir == DEFAULT_MODELS_DIR
+
+    def test_models_dir_custom_path_stored(self, tmp_path):
+        """A custom models_dir is stored unchanged."""
+        farm = self._make_farm(models_dir=tmp_path)
+        assert farm.models_dir == tmp_path
+
+
+# ── ModelFarm._build_and_evaluate — save_model integration ────────────────────
+
+class TestBuildAndEvaluateSaveModels:
+    """Tests that _build_and_evaluate calls save_model iff save_models is True."""
+
+    _ELIGIBLE = [
+        {"id": i, "ticker": t}
+        for i, t in enumerate(["AAPL", "GOOG", "MSFT", "TSLA", "AMZN"], start=1)
+    ]
+    _QUOTES = {
+        i: [{"timestamp": "2026-01-01T00:00:00", "close": 100.0}]
+        for i in range(1, 6)
+    }
+
+    def _run_build(self, farm, save_models_val, tmp_path):
+        """Run _build_and_evaluate with standard mocks; return (result, mock_save)."""
+        farm.save_models = save_models_val
+        farm.models_dir = tmp_path
+        farm.min_stocks = 2
+        farm.max_stocks = 2
+
+        prepared = MagicMock()
+        prepared.words = ["w"] * 100
+        prepared.vocab = {"w": 0}
+        prepared.train_loader = MagicMock()
+        prepared.eval_loader = MagicMock()
+        prepared.eval_subset = [MagicMock()] * 20
+
+        with patch.object(farm, "_get_eligible_stocks", return_value=self._ELIGIBLE), \
+             patch.object(farm.db, "get_quotes_for_stocks", return_value=self._QUOTES), \
+             patch("pytink.farming.prepare_data", return_value=prepared), \
+             patch("pytink.farming.StockTransformerModel"), \
+             patch("pytink.farming.train_and_evaluate", return_value=(0.5, 0.7)), \
+             patch("pytink.farming.save_model") as mock_save:
+            result = farm._build_and_evaluate(generation=0)
+            return result, mock_save
+
+    def test_save_model_called_when_save_models_true(self, farm, tmp_path):
+        """save_model is called exactly once when save_models=True."""
+        result, mock_save = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result is not None
+        mock_save.assert_called_once()
+
+    def test_save_model_not_called_when_save_models_false(self, farm, tmp_path):
+        """save_model is never called when save_models=False."""
+        result, mock_save = self._run_build(farm, save_models_val=False, tmp_path=tmp_path)
+        assert result is not None
+        mock_save.assert_not_called()
+
+    def test_save_model_receives_models_dir(self, farm, tmp_path):
+        """The second positional argument to save_model is models_dir."""
+        result, mock_save = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result is not None
+        pos_args, _ = mock_save.call_args
+        assert pos_args[1] == tmp_path
+
+    def test_save_model_receives_tickers_kwarg(self, farm, tmp_path):
+        """save_model is called with a tickers keyword argument."""
+        result, mock_save = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result is not None
+        _, kw = mock_save.call_args
+        assert "tickers" in kw
+        assert all(t in ["AAPL", "GOOG", "MSFT", "TSLA", "AMZN"] for t in kw["tickers"])
+
+    def test_save_model_receives_args_kwarg(self, farm, tmp_path):
+        """save_model is called with an args keyword argument containing training params."""
+        result, mock_save = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result is not None
+        _, kw = mock_save.call_args
+        assert "args" in kw
+        farm_args = kw["args"]
+        assert farm_args.epochs == farm.epochs
+        assert farm_args.batch_size == farm.batch_size
+        assert farm_args.learning_rate == pytest.approx(farm.learning_rate)

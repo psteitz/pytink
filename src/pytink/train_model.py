@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
 Command-line script to run stock price prediction analysis.
+
+Exported classes:
+    BatchProgressFilter  -- logging.Filter that suppresses per-batch progress
+                            messages, keeping only epoch-level summaries.
+    PreparedData         -- namedtuple returned by prepare_data containing
+                            DataLoaders, vocabulary, and processed word sequences.
+
 Usage: python train_model.py --num-stocks 20 --interval 15 --epochs 10 --batch-size 64 --context-window-size 8
 """
 import argparse
@@ -289,7 +296,13 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
 
 
 def save_vocabulary(vocab, output_dir, logger):
-    """Save vocabulary mapping to JSON file."""
+    """Save vocabulary mapping to JSON file.
+
+    Args:
+        vocab: Dictionary mapping word strings to token IDs.
+        output_dir: Directory in which to write ``vocabulary.json``.
+        logger: Logger instance for status messages.
+    """
     output_path = Path(output_dir) / "vocabulary.json"
     try:
         with open(output_path, 'w') as f:

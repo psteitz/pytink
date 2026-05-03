@@ -1,4 +1,8 @@
-"""Database utilities for stock data retrieval."""
+"""Database utilities for stock data retrieval.
+
+Exported classes:
+    StockDatabase  -- MySQL-backed interface for reading stock metadata and price quotes.
+"""
 import mysql.connector
 from mysql.connector import Error
 from typing import List, Dict, Tuple
@@ -58,7 +62,11 @@ class StockDatabase:
             logger.info("Database connection closed")
     
     def get_all_stocks(self) -> List[Dict]:
-        """Retrieve all stocks from the database."""
+        """Retrieve all stocks from the database.
+
+        Returns:
+            List of dicts with 'id', 'ticker', and 'name' keys.
+        """
         cursor = self.connection.cursor(dictionary=True)
         try:
             cursor.execute("SELECT id, ticker, name FROM stocks")
@@ -130,6 +138,15 @@ class StockDatabase:
         """Retrieve quotes for a specific stock, optionally filtered by date range.
 
         Each bound is independent: supply start_date, end_date, both, or neither.
+
+        Args:
+            stock_id: Primary key of the stock to query.
+            start_date: Inclusive lower bound on quote timestamp; None for no lower bound.
+            end_date: Inclusive upper bound on quote timestamp; None for no upper bound.
+
+        Returns:
+            List of quote dicts with 'price', 'timestamp', and 'stock' keys,
+            ordered by timestamp ascending.
         """
         cursor = self.connection.cursor(dictionary=True)
         try:
@@ -159,8 +176,17 @@ class StockDatabase:
         end_date: datetime = None
     ) -> Dict[int, List[Dict]]:
         """Retrieve quotes for multiple stocks using a single batched query.
-        
-        This is more efficient than making N separate queries.
+
+        This is more efficient than making N separate calls to get_quotes_for_stock.
+
+        Args:
+            stock_ids: List of stock primary keys to query.
+            start_date: Inclusive lower bound on quote timestamp; None for no lower bound.
+            end_date: Inclusive upper bound on quote timestamp; None for no upper bound.
+
+        Returns:
+            Dict mapping each stock_id to a list of quote dicts with 'price',
+            'timestamp', and 'stock' keys, ordered by timestamp ascending.
         """
         if not stock_ids:
             return {}

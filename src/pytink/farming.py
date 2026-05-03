@@ -3,6 +3,10 @@
 Model farming: generates, trains, and evaluates random stock prediction models,
 keeping a pool of the best performers.
 
+Exported classes:
+    ModelEntry  -- A trained model paired with its evaluation metrics and metadata.
+    ModelFarm   -- Manages a pool of models across cold-start and generational cycles.
+
 Usage:
     python -m pytink.farming --db-password YOUR_PASSWORD
     python -m pytink.farming --db-password YOUR_PASSWORD --num-models 50 --num-generations 5
@@ -13,6 +17,7 @@ import argparse
 import logging
 import random
 import time
+import types
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Tuple, Optional
@@ -22,10 +27,11 @@ import torch
 import numpy as np
 
 MODELS_PARQUET_PATH = Path(__file__).parent.parent.parent / "models.parquet"
+DEFAULT_MODELS_DIR = Path(__file__).parent.parent.parent / "models"
 
 from pytink.database import StockDatabase
 from pytink.model import StockTransformerModel
-from pytink.train_model import prepare_data, train_and_evaluate
+from pytink.train_model import prepare_data, train_and_evaluate, save_model
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +130,35 @@ class ModelFarm:
         weight_decay: float = DEFAULT_WEIGHT_DECAY,
         early_stopping_patience: int = DEFAULT_EARLY_STOPPING_PATIENCE,
         device: Optional[str] = None,
+        save_models: bool = True,
+        models_dir: Optional[Path] = None,
     ):
+        """Initialise a ModelFarm.
+
+        Args:
+            db_password: MySQL password.
+            db_host: Database host (default: localhost).
+            db_user: Database user (default: tinker).
+            db_name: Database name (default: tinker).
+            num_models: Pool size — total models to maintain (default: NUM_MODELS).
+            num_generations: Generational replacement cycles after cold start
+                (default: NUM_GENERATIONS).
+            min_stocks: Minimum stocks per model (default: MIN_STOCKS).
+            max_stocks: Maximum stocks per model (default: MAX_STOCKS).
+            interval_minutes: Price-sampling interval in minutes
+                (default: DEFAULT_INTERVAL_MINUTES).
+            context_window_size: Input sequence length
+                (default: DEFAULT_CONTEXT_WINDOW_SIZE).
+            batch_size: Training batch size (default: DEFAULT_BATCH_SIZE).
+            epochs: Training epochs per model (default: DEFAULT_EPOCHS).
+            learning_rate: Optimizer learning rate (default: DEFAULT_LEARNING_RATE).
+            weight_decay: Optimizer weight decay (default: DEFAULT_WEIGHT_DECAY).
+            early_stopping_patience: Early-stopping patience in epochs
+                (default: DEFAULT_EARLY_STOPPING_PATIENCE).
+            device: Torch device string; auto-detects CUDA when None.
+            save_models: Persist each trained model to disk when True (default: True).
+            models_dir: Root directory for saved models (default: DEFAULT_MODELS_DIR).
+        """
         self.num_models = num_models
         self.num_generations = num_generations
         self.min_stocks = min_stocks
@@ -137,6 +171,8 @@ class ModelFarm:
         self.weight_decay = weight_decay
         self.early_stopping_patience = early_stopping_patience
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
+        self.save_models = save_models
+        self.models_dir = models_dir or DEFAULT_MODELS_DIR
 
         self.models: List[ModelEntry] = []
         self.generation: int = 0
@@ -255,6 +291,22 @@ class ModelFarm:
             "  -> loss=%.4f  accuracy=%.4f  words=%d",
             final_loss, final_accuracy, len(words),
         )
+
+        if self.save_models:
+            farm_args = types.SimpleNamespace(
+                interval=self.interval_minutes,
+                context_window_size=self.context_window_size,
+                hidden_size=HIDDEN_SIZE,
+                num_hidden_layers=NUM_HIDDEN_LAYERS,
+                num_attention_heads=NUM_ATTENTION_HEADS,
+                max_position_embeddings=MAX_POSITION_EMBEDDINGS,
+                batch_size=self.batch_size,
+                epochs=self.epochs,
+                learning_rate=self.learning_rate,
+                weight_decay=self.weight_decay,
+                early_stopping_patience=self.early_stopping_patience,
+            )
+            save_model(model, self.models_dir, logger, tickers=tickers, args=farm_args)
 
         return ModelEntry(
             model=model,
@@ -416,6 +468,7 @@ class ModelFarm:
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    """Entry point for the farming CLI."""
     parser = argparse.ArgumentParser(
         description=(
             "Model Farming: generate and evolve a pool of stock prediction models, "
@@ -470,6 +523,10 @@ def main() -> None:
         "--learning-rate", type=float, default=DEFAULT_LEARNING_RATE,
         help=f"Learning rate (default: {DEFAULT_LEARNING_RATE})",
     )
+    parser.add_argument(
+        "--save-models", default=True, action=argparse.BooleanOptionalAction,
+        help="Save trained models to disk (default: true; use --no-save-models to disable)",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -491,6 +548,7 @@ def main() -> None:
         batch_size=args.batch_size,
         epochs=args.epochs,
         learning_rate=args.learning_rate,
+        save_models=args.save_models,
     )
     farm.run()
 

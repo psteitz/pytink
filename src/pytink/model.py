@@ -1,4 +1,11 @@
-"""PyTorch dataset and model classes for stock prediction."""
+"""PyTorch dataset and model classes for stock prediction.
+
+Exported classes:
+    StockWordDataset      -- PyTorch Dataset that turns word sequences into
+                             (input_ids, label) pairs for next-word prediction.
+    StockTransformerModel -- GPT-2-style causal language model wrapper for
+                             next-word prediction over stock symbol sequences.
+"""
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader

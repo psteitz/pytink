@@ -5,6 +5,8 @@ Inference script to evaluate a trained model on recent data.
 Loads a model from a directory and evaluates its performance on data from
 the last 3 months (relative to the most recent date where all stocks have quotes).
 
+This module contains only module-level functions; no classes are exported.
+
 Usage: python inference.py --db-password PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
 """
 import argparse
@@ -97,13 +99,15 @@ def load_model(model_dir: Path, vocab_size: int, config: dict, device: str) -> S
 
 def find_common_date_range(quotes_dict: dict, stock_ids: list) -> tuple:
     """Find the date range where all stocks have data.
-    
+
     Args:
-        quotes_dict: Dictionary mapping stock_id to list of quotes
-        stock_ids: List of stock IDs to consider
-        
+        quotes_dict: Dictionary mapping stock_id to list of quotes.
+        stock_ids: List of stock IDs to consider.
+
     Returns:
-        Tuple of (min_date, max_date) where all stocks have quotes
+        Tuple of (min_date, max_date) representing the latest start and earliest
+        end timestamps across all stocks, so that the range is fully covered by
+        every stock.  Either value may be None if quotes are absent.
     """
     # Find the latest start date and earliest end date across all stocks
     latest_start = None
@@ -314,6 +318,7 @@ def print_results(metrics: dict, tickers: list):
 
 
 def main():
+    """Entry point for the inference CLI."""
     parser = argparse.ArgumentParser(description='Evaluate trained stock prediction model')
     parser.add_argument('--db-password', type=str, required=True, help='Database password')
     parser.add_argument('--model-dir', type=str, required=True, 
