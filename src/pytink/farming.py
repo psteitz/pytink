@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """
-Model farming
-  Generate, train, and evaluate random stock prediction models
-  Keep a pool of the best performers
-  Update Parquet log of all models
-  Save individual trained models to disk
+Model farming: an evolutionary search over random stock/hyperparameter
+combinations for the pytink stock-prediction transformer.
+
+A pool of NUM_MODELS models is trained on randomly selected stock sets
+(cold start). Each subsequent generation keeps the top 25% of the pool
+by evaluation accuracy and retrains new random replacements for the
+remaining 75%, so the pool's average quality improves over generations.
+Every trained model's tickers, metrics, and hyperparameters are appended
+to a Parquet log (models.parquet) regardless of whether it survives, and
+each model's weights/config are saved to its own directory under models/.
+The final leaderboard of the top 10 models is printed to stdout.
 
 Exported classes:
     ModelEntry  -- A trained model paired with its evaluation metrics and metadata.
