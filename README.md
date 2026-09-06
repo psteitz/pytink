@@ -6,7 +6,7 @@ A transformer-based model that treats stock price movements as a sequence-to-seq
 
 Just as transformer models learn to predict the next word in a sentence, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" encodes simultaneous price changes across stocks over a given time interval.
 
-Stock prices don't move in isolation. The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form tokens and the transformer model is trained to predict the next token in the sequence.
+ The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form tokens and the transformer model is trained to predict the next token in the sequence.
 
 ## How It Works
 
@@ -19,7 +19,7 @@ The model learns which price movement patterns tend to follow other patterns—e
 
 ## Project Overview
 
-This project trains a transformer model to predict the next sequence of stock price changes given a history of previous sequences. Stock price changes are encoded as letters representing different percentage change ranges.
+This project trains transformer models to predict the next sequence of stock price changes given a history of previous sequences. Stock price changes are encoded as letters representing different percentage change ranges.
 
 ### Delta Encoding
 
@@ -42,6 +42,10 @@ Note that this makes all changes of magnitude more than 1% map to 'a' or 'g'.
 
 Tokens are formed by concatenating the change encodings for each of the stocks
 in a list of stocks included in a model.
+
+### The transformer model
+
+Tokens are treated as words in a vocabulary, and the model is a GPT-2-style causal (decoder-only) transformer built with Hugging Face `transformers` (`AutoModelForCausalLM`, configured from the `gpt2` base config). Given a context window of previous tokens, the model predicts a probability distribution over the next token, and is trained with standard next-token cross-entropy loss—just as GPT models predict the next word in text. See [Model Architecture](#model-architecture) below for the default layer/head/hidden-size configuration.
 
 #### Example
 
@@ -259,7 +263,7 @@ The script:
 
 ### Model Farming
 
-Model farming automatically generates and evolves a pool of random stock prediction models, searching for high-accuracy combinations of stocks and hyperparameters.
+Model farming runs an evolutionary search over a pool of random stock/hyperparameter combinations, evolving toward high-accuracy models across generations.
 
 ```bash
 # Run with defaults (100-model pool, 10 generations)
@@ -278,10 +282,12 @@ pytink-farm --db-password YOUR_PASSWORD \
 The farming pipeline:
 
 1. **Cold Start**: Trains `--num-models` randomly configured models (random stock sets within the configured min/max range)
-2. **Generational Cycles**: Each generation keeps the top 25% of the pool and replaces the bottom 75% with newly trained random models
+2. **Generational Cycles**: Each generation keeps the top 25% of the pool by evaluation accuracy and replaces the bottom 75% with newly trained random models, so pool quality improves over time
 3. **Leaderboard**: Prints a ranked table of the top 10 models by accuracy at the end
 
-Each model trained by the farm is appended to `models.parquet` at the project root, recording tickers, accuracy, loss, perplexity, and all training parameters. This file accumulates across runs.
+Every model trained by the farm—whether or not it survives into later generations—is:
+- Appended as a row to `models.parquet` at the project root, recording tickers, accuracy, loss, perplexity, and all training parameters (this file accumulates across runs)
+- Saved to its own directory under `models/` with its weights and configuration
 
 #### Farming CLI parameters
 
@@ -298,6 +304,9 @@ Each model trained by the farm is appended to `models.parquet` at the project ro
 | --learning-rate | 0.0003 | Adam optimizer learning rate |
 
 ### `pytink.farming`
+
+`ModelEntry` class:
+- Pairs a trained model with its evaluation metrics (loss, accuracy, perplexity) and metadata (tickers, stock IDs, vocab, training parameters)
 
 `ModelFarm` class provides:
 - `cold_start()`: Populate the pool with randomly generated models
