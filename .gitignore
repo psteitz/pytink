@@ -49,6 +49,7 @@ logs/
 models/
 data/
 cache/
+models.parquet
 
 # OS
 .DS_Store
