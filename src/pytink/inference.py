@@ -2,12 +2,32 @@
 """
 Inference script to evaluate a trained model on recent data.
 
-Loads a model from a directory and evaluates its performance on data from
-the last 3 months (configurable, relative to the most recent date where all stocks have quotes).
+Loads a model from a directory and evaluates its performance.
+
+Performance is measured by comparing the model's next-token predictions against
+actual price-movement tokens from a recent evaluation window: per-stock accuracy
+and a confusion matrix are reported for each delta bucket, along with overall
+cross-entropy loss and perplexity.
 
 This module contains only module-level functions; no classes are exported.
 
-Usage: python inference.py --db-password PASSWORD --model-dir models/TICKER-LIST/TIMESTAMP/
+Usage examples:
+
+  # Basic evaluation using all defaults (3-month window, 5 prediction steps)
+  python inference.py --db-password PASSWORD --model-dir models/AAPL-GOOG/20260101_120000/
+
+  # Evaluate over a longer 6-month window
+  python inference.py --db-password PASSWORD --model-dir models/AAPL-GOOG/20260101_120000/ --months 6
+
+  # Larger batch size 
+  python inference.py --db-password PASSWORD --model-dir models/AAPL-GOOG/20260101_120000/ --batch-size 128
+
+  # Predict 10 steps ahead instead of the default 5
+  python inference.py --db-password PASSWORD --model-dir models/AAPL-GOOG/20260101_120000/ --predict-steps 10
+
+  # Combine options: 6-month window, larger batch, 10-step prediction
+  python inference.py --db-password PASSWORD --model-dir models/AAPL-GOOG/20260101_120000/ \\
+      --months 6 --batch-size 128 --predict-steps 10
 """
 import argparse
 import sys
@@ -332,9 +352,7 @@ def predict_next_tokens(model, words, vocab, context_window_size, steps, device)
 
     The last ``context_window_size`` words from ``words`` seed the first prediction.
     At each step the predicted token is appended to the sliding context window so
-    that subsequent predictions build on prior ones.  ``words`` should contain
-    post-training data — i.e. quotes fetched after the model's training end date —
-    so that the seed reflects genuinely unseen market context.
+    that subsequent predictions build on prior ones.
 
     Args:
         model: Loaded StockTransformerModel

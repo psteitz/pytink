@@ -53,7 +53,7 @@ class PriceProcessor:
     """Processes stock price data and converts to deltas and words.
     
     Notes:
-    - Time-based sequential processing (no cartesian product of timestamps)
+    - Time-based sequential processiing of quotes to generate words
     - Parallel processing across time segments
     - Rolling 15-minute window
     - Market hours awareness (skips weekends, holidays, after-hours)

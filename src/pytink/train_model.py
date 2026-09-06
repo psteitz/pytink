@@ -38,7 +38,19 @@ from pytink.model import StockWordDataset, StockTransformerModel, custom_collate
 
 class BatchProgressFilter(logging.Filter):
     """Filter out batch progress messages (keep only epoch summaries)."""
+
     def filter(self, record):
+        """Determine whether the given log record should be emitted.
+
+        Suppresses per-batch progress messages (those whose text contains the
+        word ``"Batch"``), allowing only epoch-level summaries to pass through.
+
+        Args:
+            record: The :class:`logging.LogRecord` instance to evaluate.
+
+        Returns:
+            False if the record's message contains ``"Batch"``; True otherwise.
+        """
         # Suppress messages containing "Batch" (e.g., "Epoch 6/10, Batch 60/28661, Loss: 2.4032")
         # Keep messages with epoch summaries (e.g., "Epoch 5/10 - Train Loss:")
         if "Batch" in record.getMessage():
@@ -64,18 +76,34 @@ logger.addFilter(BatchProgressFilter())
 logger.info(f"Log file: {log_file}")
 
 
-def filter_stocks_by_recency(db, stock_ids, random_stocks, quotes_dict, max_age_days=30):
+def filter_stocks_by_recency(db, stock_ids, random_stocks, quotes_dict, max_age_days=30, _depth=0, _max_depth=5):
     """Filter out stocks with stale data (last quote older than max_age_days).
-    
+
+    Stocks whose most recent quote pre-dates ``max_age_days`` before the
+    most recent quote timestamp are removed. Removed stocks are replaced by
+    fetching fresh candidates from the database; the replacement candidates
+    are themselves recursively passed through this same function to ensure
+    they also meet the recency requirement.
+
     Args:
-        db: StockDatabase instance
-        stock_ids: List of stock IDs to filter
-        random_stocks: List of stock dicts with id, ticker, name
-        quotes_dict: Dict mapping stock_id to list of quotes
-        max_age_days: Maximum age of last quote in days (default 30)
-    
+        db: StockDatabase instance used to fetch
+            replacement stocks when stale ones are removed.
+        stock_ids: Ordered list of integer stock IDs to evaluate.
+        random_stocks: List of stock dicts, each containing at least the keys
+            ``'id'``, ``'ticker'``, and ``'name'``.
+        quotes_dict: Dict mapping each stock ID to a list of quote dicts.
+            Each quote dict must contain a ``'timestamp'`` key whose value is
+            either a datetime or an ISO-format date string.
+        max_age_days: A stock is considered stale when its most recent quote
+            is more than this many days older than the newest quote found
+            across all stocks in *quotes_dict* (``max_timestamp`` in the
+            function body).  Defaults to 30.
+
     Returns:
-        Tuple of (filtered_stock_ids, filtered_random_stocks, filtered_quotes_dict)
+        A 3-tuple ``(filtered_stock_ids, filtered_random_stocks,
+        filtered_quotes_dict)`` with the same structure as the corresponding
+        inputs but containing only stocks that passed the recency check (plus
+        any fresh replacements).
     """
     # Find the most recent quote timestamp across all stocks
     max_timestamp = None
@@ -96,7 +124,7 @@ def filter_stocks_by_recency(db, stock_ids, random_stocks, quotes_dict, max_age_
     cutoff_date = max_timestamp - timedelta(days=max_age_days)
     logger.info(f"Filtering stocks: keeping only those with quotes after {cutoff_date}")
     
-    # Create lookup dicts for faster filtering
+    # Create lookup dicts
     stock_dict = {s['id']: s for s in random_stocks}
     
     # Filter out stale stocks
@@ -143,13 +171,25 @@ def filter_stocks_by_recency(db, stock_ids, random_stocks, quotes_dict, max_age_
                 seen_ids.add(stock['id'])
         
         if unique_replacements:
-            replacement_ids = [s['id'] for s in unique_replacements]
-            replacement_quotes = db.get_quotes_for_stocks(replacement_ids)
-            
-            # Recursively filter replacements (limited to 1 level to avoid excessive queries)
-            replacement_ids, replacement_objs, replacement_q = filter_stocks_by_recency(
-                db, replacement_ids, unique_replacements, replacement_quotes, max_age_days
-            )
+            if _depth >= _max_depth:
+                logger.warning(
+                    f"filter_stocks_by_recency: reached max recursion depth ({_max_depth}); "
+                    "accepting remaining replacements without further recency check"
+                )
+                replacement_ids = [s['id'] for s in unique_replacements]
+                replacement_quotes = db.get_quotes_for_stocks(replacement_ids)
+                replacement_ids, replacement_objs, replacement_q = (
+                    replacement_ids, unique_replacements, replacement_quotes
+                )
+            else:
+                replacement_ids = [s['id'] for s in unique_replacements]
+                replacement_quotes = db.get_quotes_for_stocks(replacement_ids)
+
+                # Recursively filter replacements
+                replacement_ids, replacement_objs, replacement_q = filter_stocks_by_recency(
+                    db, replacement_ids, unique_replacements, replacement_quotes,
+                    max_age_days, _depth + 1, _max_depth
+                )
             
             valid_stock_ids.extend(replacement_ids)
             valid_random_stocks.extend(replacement_objs)
@@ -159,13 +199,14 @@ def filter_stocks_by_recency(db, stock_ids, random_stocks, quotes_dict, max_age_
 
 
 def load_config(config_path):
-    """Load configuration from YAML file.
-    
+    """Load configuration from a YAML file.
+
     Args:
-        config_path: Path to YAML config file
-    
+        config_path: Path-like object or string pointing to a YAML config file.
+
     Returns:
-        Dictionary with configuration values
+        A dictionary containing the parsed configuration values, or an empty
+        dict if PyYAML is not installed or the file cannot be read.
     """
     if yaml is None:
         logger.error("PyYAML not installed. Install with: pip install pyyaml")
@@ -182,10 +223,14 @@ def load_config(config_path):
 
 
 def load_default_config():
-    """Load default configuration from config_template.yaml.
-    
+    """Load default configuration from ``config_template.yaml``.
+
+    Looks for the template file in the same directory as this script.
+    Falls back to an empty dict if the file does not exist.
+
     Returns:
-        Dictionary with default configuration values
+        A dictionary containing the default configuration values parsed from
+        ``config_template.yaml``, or an empty dict if the file is absent.
     """
     template_path = Path(__file__).parent / 'config_template.yaml'
     if template_path.exists():
@@ -197,22 +242,39 @@ def load_default_config():
 
 def save_model(model, output_dir, logger, tickers=None, config=None, args=None, log_file=None, delta_values=None,
                training_start_date=None, training_end_date=None):
-    """Save trained model, config, and log file to a dedicated subdirectory.
-    
-    Directory structure: output_dir/<tickers>/<timestamp>/
-    E.g., models/AAPL-GOOGL-MSFT/20260101_143052/
-    
+    """Save the trained model weights, a reproducible config, and the training log.
+
+    Artifacts are written under ``output_dir/<tickers>/<timestamp>/``, e.g.
+    ``models/AAPL-GOOGL-MSFT/20260101_143052/``.  The directory is created
+    if it does not already exist.
+
     Args:
-        model: The trained model to save
-        output_dir: Base directory for models
-        logger: Logger instance
-        tickers: List of stock tickers to include in directory/filename
-        config: Configuration dict used for training
-        args: Argument namespace with training parameters
-        log_file: Path to the log file to copy
-        delta_values: List of delta values used for encoding
-        training_start_date: Earliest quote timestamp included in the training data
-        training_end_date: Latest quote timestamp included in the training data
+        model: Trained :class:`~pytink.model.StockTransformerModel` instance
+            whose weights will be serialised to ``model.pt``.
+        output_dir: Base directory under which the ticker/timestamp
+            subdirectory structure is created.
+        logger: :class:`logging.Logger` instance used for status and error
+            messages.
+        tickers: Optional list of ticker symbol strings.  When provided they
+            are sorted and joined with ``'-'`` to form the subdirectory name.
+            Defaults to ``"model"`` when ``None``.
+        config: Optional configuration dict used during training.  Used only
+            as a fallback source for ``delta_ranges`` when *delta_values* is
+            ``None``.
+        args: Optional :class:`argparse.Namespace` carrying resolved training
+            hyper-parameters (e.g. ``batch_size``, ``epochs``, ``learning_rate``).
+            When ``None``, hard-coded defaults are written to the config file.
+        log_file: Optional path to the training log file to copy into the
+            output directory as ``training.log``.
+        delta_values: Optional list of numeric delta threshold values used by
+            :class:`~pytink.processor.PriceProcessor` to encode price movements.
+            Written to the saved config under ``delta_ranges``.
+        training_start_date: Optional :class:`~datetime.datetime` (or ISO-format
+            string) representing the earliest quote timestamp present in the
+            training data.  Saved to the config as ``data.start_date``.
+        training_end_date: Optional :class:`~datetime.datetime` (or ISO-format
+            string) representing the latest quote timestamp present in the
+            training data.  Saved to the config as ``data.end_date``.
     """
     import shutil
     
@@ -313,12 +375,16 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
 
 
 def save_vocabulary(vocab, output_dir, logger):
-    """Save vocabulary mapping to JSON file.
+    """Save the vocabulary mapping to a JSON file.
+
+    Writes ``vocabulary.json`` into *output_dir*.  The file contains a
+    JSON object mapping each word string to its integer token ID.
 
     Args:
-        vocab: Dictionary mapping word strings to token IDs.
+        vocab: Dictionary mapping word strings to integer token IDs.
         output_dir: Directory in which to write ``vocabulary.json``.
-        logger: Logger instance for status messages.
+            The directory must already exist.
+        logger: :class:`logging.Logger` instance for status and error messages.
     """
     output_path = Path(output_dir) / "vocabulary.json"
     try:
@@ -330,10 +396,22 @@ def save_vocabulary(vocab, output_dir, logger):
 
 
 def save_predictions(predictions, output_dir, logger):
-    """Save predictions to file.
-    
+    """Save model predictions to a JSON file.
+
+    Writes ``predictions.json`` into *output_dir*, converting any NumPy
+    arrays or tensors to plain Python lists for JSON compatibility.
+
     Args:
-        predictions: Dict with keys 'true_labels', 'pred_labels', 'sequences'
+        predictions: Dict containing prediction data.  Recognised keys:
+
+            * ``'true_labels'`` – iterable of ground-truth integer class IDs.
+            * ``'pred_labels'`` – iterable of predicted integer class IDs.
+            * ``'sequences'``   – optional list of raw input sequences.
+            * ``'accuracy'``    – optional scalar overall accuracy value.
+
+        output_dir: Directory in which to write ``predictions.json``.
+            The directory must already exist.
+        logger: :class:`logging.Logger` instance for status and error messages.
     """
     output_path = Path(output_dir) / "predictions.json"
     try:
@@ -352,12 +430,30 @@ def save_predictions(predictions, output_dir, logger):
 
 
 def plot_results(training_history, eval_history, output_dir, logger):
-    """Generate and save result plots.
-    
+    """Generate and save training/evaluation result plots.
+
+    Produces a two-panel figure:  the left panel shows training and
+    evaluation loss curves; the right panel shows evaluation accuracy.
+    The figure is saved as ``results.png`` inside *output_dir*.
+
     Args:
-        training_history: Dict with 'epochs' and 'losses'
-        eval_history: Dict with 'epochs', 'losses', 'accuracies'
-        output_dir: Directory to save plots
+        training_history: Dict with the following keys:
+
+            * ``'epochs'`` – list of epoch numbers for which training loss
+              was recorded.
+            * ``'losses'`` – corresponding list of average training loss
+              values.
+
+        eval_history: Dict with the following keys:
+
+            * ``'epochs'``     – list of epoch numbers for evaluation.
+            * ``'losses'``     – corresponding list of evaluation loss values.
+            * ``'accuracies'`` – corresponding list of evaluation accuracy
+              values.
+
+        output_dir: Path-like object for the directory in which
+            ``results.png`` will be written.  Created if absent.
+        logger: :class:`logging.Logger` instance for status and error messages.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
@@ -397,9 +493,20 @@ def plot_results(training_history, eval_history, output_dir, logger):
 
 
 def parse_date(val, name):
-    """Parse a YYYY-MM-DD string into a datetime, or return None if val is None.
+    """Parse a ``YYYY-MM-DD`` string into a :class:`~datetime.datetime`.
 
-    Calls sys.exit(1) on invalid format.
+    Args:
+        val: Date string in ``YYYY-MM-DD`` format, or ``None``.
+        name: Human-readable parameter name used in the error message when
+            *val* cannot be parsed (e.g. ``'--start-date'``).
+
+    Returns:
+        A :class:`~datetime.datetime` corresponding to *val*, or ``None`` if
+        *val* is ``None``.
+
+    Raises:
+        SystemExit: Calls :func:`sys.exit` with exit code 1 when *val* is not
+            ``None`` but does not match the ``YYYY-MM-DD`` format.
     """
     if val is None:
         return None
@@ -411,6 +518,17 @@ def parse_date(val, name):
 
 
 def _build_arg_parser():
+    """Build and return the command-line argument parser.
+
+    Defines all CLI flags accepted by :func:`main`, including database
+    credentials, data selection, model architecture, and training
+    hyper-parameters.  Default values are intentionally left as ``None``
+    so that :func:`_merge_config` can apply the correct priority order.
+
+    Returns:
+        A configured :class:`argparse.ArgumentParser` instance ready to be
+        called with ``.parse_args()``.
+    """
     parser = argparse.ArgumentParser(description='Stock Price Prediction Model')
     parser.add_argument('--db-password', type=str, required=True, help='Database password (required)')
     parser.add_argument('--config', type=str, default=None, help='Path to YAML config file')
@@ -432,7 +550,20 @@ def _build_arg_parser():
 
 
 def _merge_config(args, default_config, user_config):
-    """Resolve all config values with priority: CLI args > user config > default config > hardcoded fallback."""
+    """Resolve all configuration values and write them back onto *args* in-place.
+
+    Priority order (highest to lowest):
+    CLI argument > user config file > default config template > hard-coded fallback.
+
+    Args:
+        args: :class:`argparse.Namespace` produced by :func:`_build_arg_parser`.
+            Attributes are mutated in-place with the resolved values.
+        default_config: Dict loaded from ``config_template.yaml`` via
+            :func:`load_default_config`; used as the penultimate fallback.
+        user_config: Dict loaded from the user-supplied ``--config`` file via
+            :func:`load_config`; takes precedence over *default_config* when
+            a CLI argument is absent.
+    """
     default_data = default_config.get('data', {})
     default_training = default_config.get('training', {})
     default_output = default_config.get('output', {})
@@ -498,7 +629,23 @@ def _merge_config(args, default_config, user_config):
 
 
 def _fetch_stocks(db, args):
-    """Return (stock_ids, random_stocks) from the database, deduped."""
+    """Fetch the target stock list from the database, deduplicated by ID.
+
+    When ``args.tickers`` is set, the listed tickers are looked up by symbol
+    and the script exits if any are missing.  Otherwise, ``args.num_stocks``
+    random stocks with at least 100 000 quotes are returned.
+
+    Args:
+        db: Connected :class:`~pytink.database.StockDatabase` instance.
+        args: Resolved :class:`argparse.Namespace` with at least the
+            attributes ``tickers`` (list or ``None``) and ``num_stocks`` (int).
+
+    Returns:
+        A 2-tuple ``(stock_ids, unique_stocks)`` where *stock_ids* is a list
+        of integer database IDs and *unique_stocks* is a list of stock dicts
+        (each with keys ``'id'``, ``'ticker'``, ``'name'``), both in the same
+        order and free of duplicates.
+    """
     if args.tickers:
         logger.info(f"Fetching specified tickers: {args.tickers}")
         stocks = db.get_stocks_by_tickers(args.tickers)
@@ -527,7 +674,20 @@ def _fetch_stocks(db, args):
 
 
 def _refresh_stock_names(db, stock_ids):
-    """Update missing names via yFinance and return refreshed stock rows."""
+    """Fill in any missing stock names via yFinance and return updated rows.
+
+    Calls :meth:`~pytink.database.StockDatabase.update_missing_stock_names`
+    to populate the database, then re-queries and logs each stock's ticker
+    and name.
+
+    Args:
+        db: Connected :class:`~pytink.database.StockDatabase` instance.
+        stock_ids: List of integer stock IDs whose names should be refreshed.
+
+    Returns:
+        List of stock dicts (``'id'``, ``'ticker'``, ``'name'``) re-fetched
+        from the database after the name update, in an unspecified order.
+    """
     logger.info("Updating missing stock names...")
     db.update_missing_stock_names(stock_ids)
     cursor = db.connection.cursor(dictionary=True)
@@ -541,7 +701,27 @@ def _refresh_stock_names(db, stock_ids):
 
 
 def _compute_class_weights(train_dataset, vocab_size, device):
-    """Return a log-scaled, normalised class-weight tensor."""
+    """Compute log-scaled, normalised per-class loss weights from training labels.
+
+    For each class present in *train_dataset* a weight proportional to
+    ``log(total / class_count + 1)`` is computed, then the weights are
+    normalised so their mean equals 1.  Classes with zero occurrences
+    receive a weight of 0.
+
+    Args:
+        train_dataset: :class:`torch.utils.data.Subset` (or any dataset)
+            whose items are ``(input_ids, label)`` pairs.  The *label*
+            must be a scalar integer tensor.
+        vocab_size: Total number of classes (vocabulary size); determines
+            the length of the returned weight tensor.
+        device: Torch device string or object (e.g. ``'cpu'``, ``'cuda'``)
+            on which the weight tensor should be placed.
+
+    Returns:
+        A 1-D :class:`torch.Tensor` of shape ``(vocab_size,)`` containing
+        the normalised class weights, suitable for passing to
+        :class:`torch.nn.CrossEntropyLoss` as the ``weight`` argument.
+    """
     class_counts = torch.zeros(vocab_size)
     for idx in range(len(train_dataset)):
         _, label = train_dataset[idx]
@@ -559,7 +739,29 @@ def _compute_class_weights(train_dataset, vocab_size, device):
 
 
 def _run_eval(model, loader, dataset_len, device):
-    """Run one evaluation pass; return (avg_loss, accuracy)."""
+    """Run one full evaluation pass over *loader* without gradient updates.
+
+    Sets the model to evaluation mode, iterates over every batch in *loader*,
+    accumulates loss and correct-prediction counts, then returns aggregate
+    metrics.  The model is left in evaluation mode after the call.
+
+    Args:
+        model: :class:`~pytink.model.StockTransformerModel` instance to
+            evaluate.  Its ``forward`` method must accept keyword arguments
+            ``input_ids`` and ``labels`` and return a dict with keys
+            ``'loss'`` and ``'logits'``.
+        loader: :class:`torch.utils.data.DataLoader` yielding
+            ``(input_ids, labels)`` batches from the evaluation split.
+        dataset_len: Total number of samples in the evaluation split, used
+            as the denominator when averaging the accumulated loss.
+        device: Torch device string or object to which batches are moved
+            before being passed to the model.
+
+    Returns:
+        An ordered pair ``(avg_loss, accuracy)`` where *avg_loss* is the
+        per-sample mean cross-entropy loss (float) and *accuracy* is the
+        fraction of correctly predicted next tokens (float in ``[0, 1]``).
+    """
     model.eval()
     total_loss, correct, total = 0.0, 0, 0
     with torch.no_grad():
@@ -584,10 +786,37 @@ def train_and_evaluate(
     early_stopping_patience,
     device,
 ):
-    """Train *model* with early stopping; return ``(final_eval_loss, final_eval_accuracy)``.
+    """Train *model* with early stopping and return final evaluation metrics.
 
-    The model's weights are updated in-place and the best checkpoint is
-    restored before the final evaluation pass.
+    Uses the Adam optimiser with gradient clipping (max norm 1.0).  After
+    each epoch the model is evaluated on *eval_loader*; the best checkpoint
+    (lowest eval loss) is saved in memory and restored before the final
+    evaluation pass.  The model's weights are updated in-place.
+
+    Args:
+        model: :class:`~pytink.model.StockTransformerModel` instance to train.
+            Its ``forward`` method must accept ``input_ids`` and ``labels``
+            keyword arguments and return a dict with keys ``'loss'`` and
+            ``'logits'``.
+        train_loader: :class:`torch.utils.data.DataLoader` for the training
+            split, yielding ``(input_ids, labels)`` batches.
+        eval_loader: :class:`torch.utils.data.DataLoader` for the evaluation
+            split, yielding ``(input_ids, labels)`` batches.
+        eval_dataset_len: Total number of samples in the evaluation split;
+            used to compute the per-sample mean eval loss.
+        epochs: Maximum number of training epochs to run.
+        learning_rate: Initial learning rate passed to :class:`torch.optim.Adam`.
+        weight_decay: L2 regularisation coefficient passed to
+            :class:`torch.optim.Adam`.
+        early_stopping_patience: Number of consecutive epochs without an
+            improvement in eval loss before training is stopped early.
+            Pass ``0`` to disable early stopping.
+        device: Torch device string or object to which batches are moved
+            before being passed to the model.
+
+    Returns:
+        A 2-tuple ``(final_eval_loss, final_eval_accuracy)`` evaluated on
+        *eval_loader* using the best model checkpoint found during training.
     """
     optimizer = optim.Adam(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
@@ -651,21 +880,42 @@ def prepare_data(
     min_words=0,
     min_sequences=0,
 ):
-    """Convert a quotes dict into train/eval DataLoaders.
+    """Convert a quotes dict into train/eval DataLoaders ready for model training.
+
+    Runs the full preprocessing pipeline: price-word extraction via
+    :class:`~pytink.processor.PriceProcessor`, vocabulary construction,
+    :class:`~pytink.model.StockWordDataset` creation, an 85/15 train/eval
+    split, and :class:`~torch.utils.data.DataLoader` wrapping.
 
     Args:
-        quotes_dict: dict mapping stock_id -> list of quote dicts.
-        stock_ids: ordered list of stock IDs to include.
-        interval_minutes: price-sampling interval for PriceProcessor.
-        context_window_size: sequence length for StockWordDataset.
-        batch_size: DataLoader batch size.
-        delta_values: optional custom delta thresholds for PriceProcessor.
-        min_words: return None when fewer words are generated.
-        min_sequences: return None when the dataset has fewer sequences.
+        quotes_dict: Dict mapping each stock ID (int) to a list of quote
+            dicts.  Each quote dict must contain at least ``'timestamp'``
+            and ``'close'`` keys.
+        stock_ids: Ordered list of integer stock IDs to include.  The order
+            determines the character position of each stock in the generated
+            price-movement words.
+        interval_minutes: Sampling interval in minutes passed to
+            :class:`~pytink.processor.PriceProcessor` for resampling raw
+            tick data.
+        context_window_size: Number of tokens (price-movement words) in each
+            input sequence fed to the model.
+        batch_size: Number of sequences per mini-batch for both DataLoaders.
+        delta_values: Optional list of numeric delta thresholds passed to
+            :class:`~pytink.processor.PriceProcessor`.  When ``None`` the
+            processor uses its built-in defaults.
+        min_words: Minimum number of words that must be generated before
+            proceeding.  Returns ``None`` when the count is below this
+            threshold.  Defaults to ``0`` (no minimum).
+        min_sequences: Minimum number of sequences the
+            :class:`~pytink.model.StockWordDataset` must contain before
+            proceeding.  Returns ``None`` when the count is below this
+            threshold.  Defaults to ``0`` (no minimum).
 
     Returns:
-        A PreparedData named tuple, or None if the data does not meet the
-        minimum size requirements.
+        A :class:`PreparedData` named tuple with fields
+        ``(processor, words, vocab, train_loader, eval_loader,
+        train_subset, eval_subset)``, or ``None`` if the generated data
+        does not satisfy *min_words* or *min_sequences*.
     """
     processor = PriceProcessor(interval_minutes=interval_minutes, delta_values=delta_values)
     words = processor.extract_words(quotes_dict, stock_ids)
@@ -715,7 +965,20 @@ def prepare_data(
 
 
 def _log_delta_distribution(processor, words):
-    """Log the per-symbol delta frequency distribution."""
+    """Log the frequency distribution of each delta symbol across all words.
+
+    For every delta threshold defined in ``processor.delta_values`` a
+    corresponding letter (``'a'``, ``'b'``, ...) is counted across all
+    characters of every word in *words*.  The resulting counts, percentages,
+    and a simple bar chart are written to the logger at INFO level.
+
+    Args:
+        processor: :class:`~pytink.processor.PriceProcessor` instance whose
+            ``delta_values`` attribute defines the ordered list of thresholds
+            (and therefore the mapping from letter to percentage change).
+        words: List of price-movement word strings as produced by
+            :meth:`~pytink.processor.PriceProcessor.extract_words`.
+    """
     delta_labels = []
     for i, delta in enumerate(processor.delta_values):
         char = chr(ord('a') + i)
@@ -739,7 +1002,28 @@ def _log_delta_distribution(processor, words):
 
 
 def _log_confusion_matrices(eval_loader, model, vocab, processor, tickers, device):
-    """Collect predictions and log per-stock confusion matrices and accuracy summary."""
+    """Log per-stock confusion matrices and an accuracy summary to the logger.
+
+    Runs a full inference pass over *eval_loader*, maps integer predictions
+    back to word strings, then—for each stock position in the word—tabulates
+    a confusion matrix over delta letters and reports the per-position
+    accuracy.  A ranked summary of per-stock accuracies is logged at the end.
+
+    Args:
+        eval_loader: :class:`torch.utils.data.DataLoader` for the held-out
+            evaluation split, yielding ``(input_ids, labels)`` batches.
+        model: :class:`~pytink.model.StockTransformerModel` instance used for
+            inference.  Set to evaluation mode internally.
+        vocab: Dict mapping word strings to integer token IDs, as produced by
+            :func:`prepare_data`.
+        processor: :class:`~pytink.processor.PriceProcessor` instance whose
+            ``delta_values`` attribute defines the ordered set of delta
+            thresholds (and therefore the set of valid delta letters).
+        tickers: Ordered list of ticker symbol strings corresponding to stock
+            positions within each word (position 0 → tickers[0], etc.).
+        device: Torch device string or object to which batches are moved
+            before being passed to the model.
+    """
     idx_to_word = {idx: word for word, idx in vocab.items()}
     delta_letters = [chr(ord('a') + i) for i in range(len(processor.delta_values))]
 
@@ -804,6 +1088,20 @@ def _log_confusion_matrices(eval_loader, model, vocab, processor, tickers, devic
 
 
 def main():
+    """Entry point: parse arguments, train the model, and save all artifacts.
+
+    Orchestrates the full training pipeline:
+
+    1. Parse CLI arguments and merge with config files.
+    2. Connect to the database and fetch/deduplicate stocks.
+    3. Download quotes, apply recency filtering, and refresh stock names.
+    4. Run :func:`prepare_data` to build train/eval DataLoaders.
+    5. Construct :class:`~pytink.model.StockTransformerModel` and optionally
+       apply class-frequency-based loss weighting.
+    6. Call :func:`train_and_evaluate` with early stopping.
+    7. Log final metrics, per-stock confusion matrices, and delta distributions.
+    8. Optionally save the model, vocabulary, predictions, and result plots.
+    """
     default_config = load_default_config()
     user_config = {}
 
