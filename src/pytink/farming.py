@@ -56,7 +56,7 @@ MIN_QUOTES = 100_000      # Minimum quote count required for a stock to be eligi
 
 # Data processing
 DEFAULT_INTERVAL_MINUTES = 30
-DEFAULT_CONTEXT_WINDOW_SIZE = 16
+DEFAULT_CONTEXT_WINDOW_SIZE = 128
 
 # Training
 DEFAULT_BATCH_SIZE = 64
@@ -125,7 +125,7 @@ class ModelFarm:
         self,
         db_password: str,
         db_host: str = "localhost",
-        db_user: str = "tinker",
+        db_user: str = "root",
         db_name: str = "tinker",
         num_models: int = NUM_MODELS,
         num_generations: int = NUM_GENERATIONS,
@@ -316,6 +316,16 @@ class ModelFarm:
                 early_stopping_patience=self.early_stopping_patience,
             )
             save_model(model, self.models_dir, logger, tickers=tickers, args=farm_args)
+
+        # The pool only needs this model's metrics/tickers from here on (the
+        # weights are already persisted to disk above), but ModelEntry keeps a
+        # reference to it for the rest of the run. Move it off the GPU and
+        # release the CUDA cache now, otherwise every model ever built stays
+        # GPU-resident indefinitely and the pool exhausts GPU memory after
+        # enough generations.
+        if str(self.device).startswith("cuda"):
+            model.get_model().to("cpu")
+            torch.cuda.empty_cache()
 
         return ModelEntry(
             model=model,
