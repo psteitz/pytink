@@ -1,11 +1,28 @@
 """Utilities for analyzing and visualizing training results.
 
-This module contains only module-level functions; no classes are exported.
+Exported classes:
+    ModelViewer -- Streamlit-based web UI for browsing trained models under
+                   models/: a top-N leaderboard, ticker search, and
+                   per-model drilldown.
 """
+import logging
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import matplotlib.pyplot as plt
 import numpy as np
-from typing import Dict, List
 import json
+
+from pytink.model_registry import (
+    DEFAULT_MODELS_DIR,
+    DEFAULT_PARQUET_PATH,
+    records_to_dataframe,
+    scan_models_dir,
+    search_models_df,
+    top_models_df,
+)
+
+logger = logging.getLogger(__name__)
 
 
 def plot_training_loss(history: Dict[str, List[float]], save_path: str = None):
@@ -144,3 +161,186 @@ def load_vocabulary(filepath: str) -> Dict[str, int]:
     with open(filepath, 'r') as f:
         vocab = json.load(f)
     return vocab
+
+
+# Columns shown in the leaderboard / search tables, in display order.
+_TABLE_COLUMNS = [
+    "tickers_display",
+    "eval_accuracy",
+    "eval_loss",
+    "perplexity",
+    "metrics_source",
+    "interval_minutes",
+    "context_window_size",
+    "hidden_size",
+    "num_hidden_layers",
+    "num_attention_heads",
+    "max_position_embeddings",
+    "batch_size",
+    "epochs",
+    "learning_rate",
+    "weight_decay",
+    "early_stopping_patience",
+    "run_timestamp",
+]
+
+
+def _directory_signature(models_dir: Path):
+    """A cheap (count, max-mtime) fingerprint used to invalidate the cache
+    when models are added/removed, without rescanning the full tree."""
+    if not models_dir.exists():
+        return (0, 0.0)
+    paths = list(models_dir.glob("*/*/config.yaml"))
+    if not paths:
+        return (0, 0.0)
+    return (len(paths), max(p.stat().st_mtime for p in paths))
+
+
+class ModelViewer:
+    """Streamlit web UI for browsing trained pytink models.
+
+    Reads model configuration, training logs, and the farm's aggregated
+    ``models.parquet`` from the ``models/`` directory tree (see
+    :mod:`pytink.model_registry`) and presents:
+
+    - A top-N leaderboard ranked by evaluation accuracy, showing every
+      recorded metric, ticker list, and training/config parameter.
+    - A ticker search that lists all models trained on a given set of
+      tickers (order-independent, all must be present).
+    - A per-model drilldown with the full config, per-stock accuracy
+      (when available), and other training details.
+
+    This class only depends on ``streamlit`` at render time, so importing
+    :mod:`pytink.analysis` does not require streamlit to be installed.
+
+    Usage:
+        # streamlit run src/pytink/viewer_app.py
+        from pytink.analysis import ModelViewer
+        ModelViewer().render()
+    """
+
+    def __init__(
+        self,
+        models_dir: Optional[Path] = None,
+        parquet_path: Optional[Path] = None,
+        default_top_n: int = 10,
+    ):
+        """Initialise a ModelViewer.
+
+        Args:
+            models_dir: Root models directory (default: ``<repo>/models``).
+            parquet_path: Path to the farm's aggregated metrics log
+                (default: ``<repo>/models.parquet``).
+            default_top_n: Default number of models shown in the leaderboard
+                (default: 10).
+        """
+        self.models_dir = Path(models_dir) if models_dir else DEFAULT_MODELS_DIR
+        self.parquet_path = Path(parquet_path) if parquet_path else DEFAULT_PARQUET_PATH
+        self.default_top_n = default_top_n
+
+    def _load_dataframe(self):
+        """Scan models_dir (cached by Streamlit until its contents change)."""
+        import streamlit as st
+
+        @st.cache_data(show_spinner="Scanning models directory...")
+        def _cached(models_dir_str, parquet_path_str, _signature):
+            records = scan_models_dir(Path(models_dir_str), Path(parquet_path_str))
+            return records_to_dataframe(records)
+
+        signature = _directory_signature(self.models_dir)
+        return _cached(str(self.models_dir), str(self.parquet_path), signature)
+
+    def render(self):
+        """Render the full viewer page. Call once per Streamlit script run."""
+        import streamlit as st
+
+        st.set_page_config(page_title="pytink Model Viewer", layout="wide")
+        st.title("pytink Model Viewer")
+        st.caption(str(self.models_dir))
+
+        if st.sidebar.button("Refresh data"):
+            st.cache_data.clear()
+
+        df = self._load_dataframe()
+        if df.empty:
+            st.warning(f"No trained models found under {self.models_dir}")
+            return
+
+        st.sidebar.header("Top Models")
+        top_n = st.sidebar.number_input(
+            "Number of top models", min_value=1, max_value=len(df),
+            value=min(self.default_top_n, len(df)),
+        )
+
+        st.sidebar.header("Search by Tickers")
+        ticker_input = st.sidebar.text_input(
+            "Tickers (comma-separated)", "", help="e.g. AAPL, MSFT"
+        )
+
+        tab_top, tab_search = st.tabs(["Top Models", "Search by Tickers"])
+
+        with tab_top:
+            st.subheader(f"Top {top_n} Models by Eval Accuracy")
+            self._render_table_with_drilldown(top_models_df(df, n=top_n), key_prefix="top")
+
+        with tab_search:
+            tickers = [t for t in (s.strip() for s in ticker_input.split(",")) if t]
+            if tickers:
+                st.subheader(f"Models containing: {', '.join(tickers)}")
+                result_df = search_models_df(df, tickers)
+                st.write(f"{len(result_df)} matching model(s)")
+                self._render_table_with_drilldown(result_df, key_prefix="search")
+            else:
+                st.info("Enter one or more tickers in the sidebar to search.")
+
+    def _render_table_with_drilldown(self, df, key_prefix: str):
+        """Render a summary table plus a selectbox-driven detail view."""
+        import streamlit as st
+
+        if df.empty:
+            st.write("No matching models.")
+            return
+
+        st.dataframe(df[_TABLE_COLUMNS], width="stretch", hide_index=True)
+
+        options = df["model_dir"].tolist()
+        labels = {
+            row["model_dir"]: f"{row['tickers_display']}  ({row['run_timestamp']})"
+            for _, row in df.iterrows()
+        }
+        selected = st.selectbox(
+            "Select a model for details",
+            options,
+            format_func=lambda d: labels.get(d, d),
+            key=f"{key_prefix}_select",
+        )
+        if selected:
+            self._render_detail(df[df["model_dir"] == selected].iloc[0])
+
+    def _render_detail(self, row):
+        """Render the drilldown panel for a single model record."""
+        import streamlit as st
+        import pandas as pd
+
+        st.markdown(f"#### {row['tickers_display']}")
+        st.caption(f"{row['model_dir']}  —  source: {row['metrics_source']}")
+
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Eval Accuracy", f"{row['eval_accuracy']:.4f}" if pd.notna(row["eval_accuracy"]) else "N/A")
+        col2.metric("Eval Loss", f"{row['eval_loss']:.4f}" if pd.notna(row["eval_loss"]) else "N/A")
+        col3.metric("Perplexity", f"{row['perplexity']:.4f}" if pd.notna(row["perplexity"]) else "N/A")
+
+        if row["per_stock_accuracy"]:
+            st.markdown("**Per-stock accuracy**")
+            per_stock_df = pd.DataFrame(
+                sorted(row["per_stock_accuracy"].items(), key=lambda kv: -kv[1]),
+                columns=["ticker", "accuracy"],
+            )
+            st.dataframe(per_stock_df, width="stretch", hide_index=True)
+
+        st.markdown("**Full configuration**")
+        st.json(row["raw_config"])
+
+    def run(self):
+        """Alias for :meth:`render`, for symmetry with other pytink entry points."""
+        self.render()

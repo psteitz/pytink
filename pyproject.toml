@@ -19,10 +19,15 @@ dependencies = [
     "yfinance==1.0",
 ]
 
+[project.optional-dependencies]
+# Required only for the model viewer (pytink-viewer / ModelViewer).
+viewer = ["streamlit>=1.38"]
+
 [project.scripts]
 pytink-train = "pytink.train_model:main"
 pytink-infer = "pytink.inference:main"
 pytink-farm  = "pytink.farming:main"
+pytink-viewer = "pytink.viewer_app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -8,3 +8,7 @@ tqdm==4.67.1
 matplotlib==3.10.8
 pytest==9.0.2
 yfinance==1.0
+
+# Optional: required only for the model viewer (pytink-viewer). Install with
+# `pip install streamlit` or `pip install -e .[viewer]`.
+# streamlit>=1.38

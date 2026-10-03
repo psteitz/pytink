@@ -70,7 +70,9 @@ pytink/
 │       ├── database.py      # MySQL database interface
 │       ├── processor.py     # Price processing and delta encoding
 │       ├── model.py         # PyTorch model and dataset classes
-│       ├── analysis.py      # Visualization utilities
+│       ├── analysis.py      # Visualization utilities + ModelViewer web UI
+│       ├── model_registry.py # Scans models/ + models.parquet into model records
+│       ├── viewer_app.py    # Streamlit launcher for the model viewer
 │       ├── farming.py       # Automated model generation
 │       ├── train_model.py   # Training CLI
 │       └── inference.py     # Evaluate trained models
@@ -90,6 +92,7 @@ pytink/
 - Python 3.8+
 - MySQL 5.7+
 - See `requirements.txt` for Python packages
+- Optional: Streamlit, required only for the [model viewer](#model-viewer)
 
 ### Database Setup
 
@@ -126,6 +129,13 @@ pip install -e .
 4. Verify installation:
 ```bash
 pytest tests/ -q
+```
+
+5. Optional: install Streamlit to use the [model viewer](#model-viewer):
+```bash
+pip install streamlit
+# or, equivalently:
+pip install -e .[viewer]
 ```
 
 ## Quick Start
@@ -312,6 +322,38 @@ Every model trained by the farm—whether or not it survives into later generati
 - `cold_start()`: Populate the pool with randomly generated models
 - `run()`: Full pipeline — cold start, generational cycles, leaderboard display
 - `display_top_models(n)`: Print ranked leaderboard of top N models
+
+### Model Viewer
+
+A Streamlit web app for browsing every model ever trained (via `pytink-train` or `pytink-farm`). It scans `models/<TICKERS>/<TIMESTAMP>/` for `config.yaml` and `training.log`, falling back to the root `models.parquet` for farm-trained models that lack a `training.log`, and presents:
+
+- **Top Models**: a configurable top-N leaderboard (default 10) ranked by eval accuracy, showing every metric (accuracy, loss, perplexity) alongside tickers and all config/hyperparameters.
+- **Search by Tickers**: list every model trained on a given set of tickers (order-independent; provide one or more).
+- **Drilldown**: select any model in either table to see its full config, per-stock accuracy (when available from a `training.log`), and other training details.
+
+```bash
+# Launch via the installed console script
+pytink-viewer
+
+# Or run the Streamlit app directly
+streamlit run src/pytink/viewer_app.py
+```
+
+#### `pytink.model_registry`
+
+`ModelRecord` dataclass:
+- One trained run's tickers, config, and metrics (`eval_accuracy`, `eval_loss`, `perplexity`, `per_stock_accuracy`, etc.)
+
+Module-level functions:
+- `scan_models_dir(models_dir, parquet_path)`: Walk `models/` and build a list of `ModelRecord`
+- `records_to_dataframe(records)`: Flatten records into a `pandas.DataFrame`
+- `top_models_df(df, n, metric)`: Top N rows ranked by a metric (default: eval accuracy)
+- `search_models_df(df, tickers)`: Rows whose ticker set is a superset of the given tickers
+
+#### `pytink.analysis`
+
+`ModelViewer` class:
+- `render()`: Render the full Streamlit page (leaderboard, search, drilldown)
 
 ## Performance Metrics
 
