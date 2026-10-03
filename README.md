@@ -6,7 +6,7 @@ A transformer-based model that treats stock price movements as a sequence-to-seq
 
 Just as transformer models learn to predict the next word in a sentence, this system learns to predict the next "word" of price movements across a portfolio of stocks. Each "word" encodes simultaneous price changes across stocks over a given time interval.
 
- The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of stocks.  The length is configurable, defaulting to 20 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form tokens and the transformer model is trained to predict the next token in the sequence.
+ The idea here is to see if an attention-based approach can work to learn relationships between stock movements over time.  Models focus on a vector of beteween 5 and 15 randomly selected high-volume stocks. Each (configurable) time increment, changes are recorded for each stock in the vector.  The changes are quantized into (configurable) bins (e.g, [-.01, -.005, -.0001, 0, .0001, .005, .01]) which are mapped to letters.  The letters are concatentated to form tokens and the transformer model is trained to predict the next token in the sequence.
 
 ## How It Works
 
@@ -45,7 +45,7 @@ in a list of stocks included in a model.
 
 ### The transformer model
 
-Tokens are treated as words in a vocabulary, and the model is a GPT-2-style causal (decoder-only) transformer built with Hugging Face `transformers` (`AutoModelForCausalLM`, configured from the `gpt2` base config). Given a context window of previous tokens, the model predicts a probability distribution over the next token, and is trained with standard next-token cross-entropy loss—just as GPT models predict the next word in text. See [Model Architecture](#model-architecture) below for the default layer/head/hidden-size configuration.
+Tokens are treated as words in a vocabulary, and the model is a transformer built with Hugging Face `transformers` (`AutoModelForCausalLM`, configured from the `gpt2` base config). Given a context window of previous tokens, the model predicts a probability distribution over the next token, and is trained with standard next-token cross-entropy loss—just as GPT models predict the next word in text. See [Model Architecture](#model-architecture) below for the default layer/head/hidden-size configuration.
 
 #### Example
 
