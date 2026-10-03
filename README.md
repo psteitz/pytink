@@ -38,6 +38,14 @@ Actual price changes are mapped to the nearest neighbor from the list above.
 
 Note that this makes all changes of magnitude more than 1% map to 'a' or 'g'.
 
+### Market Hours Awareness
+
+Before encoding, the processor automatically:
+- Skips weekends (Saturday/Sunday)
+- Skips US market holidays
+- Only processes data during market hours (9:30 AM - 4:00 PM ET)
+- Resets price baselines at each market open to avoid cross-day artifacts
+
 ### Tokens
 
 Tokens are formed by concatenating the change encodings for each of the stocks
@@ -174,13 +182,43 @@ The script performs the following workflow:
 9. **Evaluate**: Calculate loss, accuracy, and perplexity metrics
 10. **Save Model**: Save trained model to `models/<TICKERS>_model.pt`
 
-### Market Hours Awareness
+### Evaluating a Trained Model
 
-The processor automatically:
-- Skips weekends (Saturday/Sunday)
-- Skips US market holidays
-- Only processes data during market hours (9:30 AM - 4:00 PM ET)
-- Resets price baselines at each market open to avoid cross-day artifacts
+Evaluate a saved model's accuracy on recent, unseen data:
+
+```bash
+# Evaluate on the last 3 months of data (default)
+pytink-infer --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/
+
+# Evaluate on the last 6 months
+pytink-infer --db-password YOUR_PASSWORD --model-dir models/AAPL-GOOGL-MSFT/20260101_120000/ --months 6
+```
+
+Loads the model's config and weights from `--model-dir`, fetches recent quotes for its tickers, and reports overall accuracy, loss, and perplexity plus a per-stock confusion matrix.
+
+### Running the Model Farm
+
+Instead of training one model by hand, let `pytink-farm` evolve a whole pool of them, keeping the best performers across generations:
+
+```bash
+# Run with defaults (100-model pool, 10 generations)
+pytink-farm --db-password YOUR_PASSWORD
+
+# Smaller, faster run for experimentation
+pytink-farm --db-password YOUR_PASSWORD --num-models 20 --num-generations 3
+```
+
+Every trained model — survivor or not — is saved to `models/<TICKERS>/<TIMESTAMP>/` and logged to `models.parquet` at the project root. See [Model Farming](#model-farming) below for the full CLI parameter table and pipeline details.
+
+### Launching the Model Viewer
+
+Browse every model ever trained in a local web UI: a configurable top-N leaderboard by eval accuracy, search by ticker, and per-model drilldown.
+
+```bash
+pytink-viewer
+```
+
+See [Model Viewer](#model-viewer) below for what it shows, and the [Installation](#installation) section for installing its optional Streamlit dependency.
 
 ## Configuration
 
