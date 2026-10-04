@@ -310,6 +310,7 @@ def save_model(model, output_dir, logger, tickers=None, config=None, args=None, 
                 'context_window_size': args.context_window_size if args else 8,
             },
             'model': {
+                'model_type': args.model_type if args else 'gpt2',
                 'hidden_size': args.hidden_size if args else 128,
                 'num_hidden_layers': args.num_hidden_layers if args else 4,
                 'num_attention_heads': args.num_attention_heads if args else 4,
@@ -619,6 +620,7 @@ def _merge_config(args, default_config, user_config):
     args.plot_results = user_config.get('output', {}).get('plot_results', default_output.get('plot_results', False))
 
     # Model architecture
+    args.model_type = user_model.get('model_type', default_model.get('model_type', 'gpt2'))
     args.hidden_size = user_model.get('hidden_size', default_model.get('hidden_size', 128))
     args.num_hidden_layers = user_model.get('num_hidden_layers', default_model.get('num_hidden_layers', 4))
     args.num_attention_heads = user_model.get('num_attention_heads', default_model.get('num_attention_heads', 4))
@@ -1194,6 +1196,7 @@ def main():
         hidden_size=args.hidden_size,
         num_hidden_layers=args.num_hidden_layers,
         num_attention_heads=args.num_attention_heads,
+        model_type=args.model_type,
         device=device,
     )
 

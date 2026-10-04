@@ -541,7 +541,19 @@ import pandas as pd
 
 df = pd.read_parquet("models.parquet")
 print(df.sort_values("accuracy", ascending=False).head(10).to_string())
+
+# Each row also records the quote date range actually used for training
+print(df[["tickers", "quote_start_date", "quote_end_date"]].head(10).to_string())
 ```
+
+**Backfilling `quote_start_date`/`quote_end_date` for older rows:**
+```bash
+python -m pytink.backfill_quote_dates --dry-run   # preview what would change
+python -m pytink.backfill_quote_dates             # write the backfilled parquet (keeps a .bak)
+```
+This only recovers dates for models whose `models/<TICKERS>/<TIMESTAMP>/config.yaml` already
+records them -- runs trained before quote-date tracking was added cannot be backfilled, since
+the raw quote timestamps they used were never persisted anywhere.
 
 The parquet file stores one row per trained model with columns:
 `tickers`, `accuracy`, `loss`, `perplexity`, `interval_minutes`,

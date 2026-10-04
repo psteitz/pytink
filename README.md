@@ -252,6 +252,7 @@ delta_ranges:
 ### Model Architecture
 
 The transformer model uses:
+- **Model Type**: `gpt2` (default; passed to `AutoConfig.from_pretrained`, configurable via `model.model_type` in a `--config` file)
 - **Vocabulary Size**: Number of unique words in the dataset
 - **Hidden Size**: 128 dimensions (default)
 - **Layers**: 4 transformer layers (default)
@@ -334,7 +335,7 @@ The farming pipeline:
 3. **Leaderboard**: Prints a ranked table of the top 10 models by accuracy at the end
 
 Every model trained by the farm—whether or not it survives into later generations—is:
-- Appended as a row to `models.parquet` at the project root, recording tickers, accuracy, loss, perplexity, and all training parameters (this file accumulates across runs)
+- Appended as a row to `models.parquet` at the project root, recording tickers, accuracy, loss, perplexity, all training parameters, and the actual quote date range (`quote_start_date`/`quote_end_date`) used to train it (this file accumulates across runs)
 - Saved to its own directory under `models/` with its weights and configuration
 
 #### Farming CLI parameters

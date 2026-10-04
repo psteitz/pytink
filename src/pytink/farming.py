@@ -70,6 +70,7 @@ HIDDEN_SIZE = 128
 NUM_HIDDEN_LAYERS = 4
 NUM_ATTENTION_HEADS = 4
 MAX_POSITION_EMBEDDINGS = 256
+MODEL_TYPE = "gpt2"
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -86,6 +87,8 @@ class ModelEntry:
         eval_accuracy: float,
         num_words: int,
         generation: int = 0,
+        quote_start_date: Optional[datetime] = None,
+        quote_end_date: Optional[datetime] = None,
     ):
         self.model = model
         self.tickers = tickers
@@ -97,6 +100,9 @@ class ModelEntry:
         self.num_words = num_words
         self.generation = generation
         self.created_at = datetime.now()
+        # Earliest/latest quote timestamp actually included in this model's training data.
+        self.quote_start_date = quote_start_date
+        self.quote_end_date = quote_end_date
 
     def __repr__(self) -> str:
         return (
@@ -125,7 +131,7 @@ class ModelFarm:
         self,
         db_password: str,
         db_host: str = "localhost",
-        db_user: str = "root",
+        db_user: str = "tinker",
         db_name: str = "tinker",
         num_models: int = NUM_MODELS,
         num_generations: int = NUM_GENERATIONS,
@@ -259,6 +265,19 @@ class ModelFarm:
         stock_ids = valid_ids
         quotes_dict = {sid: quotes_dict[sid] for sid in stock_ids}
 
+        # Determine actual quote date range included in training data.
+        quote_start_date = None
+        quote_end_date = None
+        for quotes in quotes_dict.values():
+            for quote in quotes:
+                ts = quote["timestamp"]
+                if isinstance(ts, str):
+                    ts = datetime.fromisoformat(ts)
+                if quote_start_date is None or ts < quote_start_date:
+                    quote_start_date = ts
+                if quote_end_date is None or ts > quote_end_date:
+                    quote_end_date = ts
+
         prepared = prepare_data(
             quotes_dict=quotes_dict,
             stock_ids=stock_ids,
@@ -281,6 +300,7 @@ class ModelFarm:
             num_hidden_layers=NUM_HIDDEN_LAYERS,
             num_attention_heads=NUM_ATTENTION_HEADS,
             max_position_embeddings=MAX_POSITION_EMBEDDINGS,
+            model_type=MODEL_TYPE,
             device=self.device,
         )
 
@@ -309,13 +329,17 @@ class ModelFarm:
                 num_hidden_layers=NUM_HIDDEN_LAYERS,
                 num_attention_heads=NUM_ATTENTION_HEADS,
                 max_position_embeddings=MAX_POSITION_EMBEDDINGS,
+                model_type=MODEL_TYPE,
                 batch_size=self.batch_size,
                 epochs=self.epochs,
                 learning_rate=self.learning_rate,
                 weight_decay=self.weight_decay,
                 early_stopping_patience=self.early_stopping_patience,
             )
-            save_model(model, self.models_dir, logger, tickers=tickers, args=farm_args)
+            save_model(
+                model, self.models_dir, logger, tickers=tickers, args=farm_args,
+                training_start_date=quote_start_date, training_end_date=quote_end_date,
+            )
 
         # The pool only needs this model's metrics/tickers from here on (the
         # weights are already persisted to disk above), but ModelEntry keeps a
@@ -336,6 +360,8 @@ class ModelFarm:
             eval_accuracy=final_accuracy,
             num_words=len(words),
             generation=generation,
+            quote_start_date=quote_start_date,
+            quote_end_date=quote_end_date,
         )
 
     # ── Parquet logging ──────────────────────────────────────────────────────
@@ -358,7 +384,10 @@ class ModelFarm:
             "num_hidden_layers": NUM_HIDDEN_LAYERS,
             "num_attention_heads": NUM_ATTENTION_HEADS,
             "max_position_embeddings": MAX_POSITION_EMBEDDINGS,
+            "model_type": MODEL_TYPE,
             "created_at": entry.created_at,
+            "quote_start_date": entry.quote_start_date,
+            "quote_end_date": entry.quote_end_date,
         }
         df_new = pd.DataFrame([row])
         if MODELS_PARQUET_PATH.exists():

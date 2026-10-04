@@ -133,7 +133,25 @@ class TestStockTransformerModel:
         """Test model initializes correctly."""
         assert model is not None
         assert model.vocab_size == vocab_size
-    
+
+    def test_model_type_defaults_to_gpt2(self, model):
+        """model_type defaults to 'gpt2' when not specified."""
+        assert model.model_type == "gpt2"
+
+    def test_model_type_is_settable(self):
+        """Clients can set a non-default model_type at construction."""
+        custom_model = StockTransformerModel(
+            vocab_size=7,
+            hidden_size=32,
+            num_hidden_layers=1,
+            num_attention_heads=1,
+            model_type="gpt2",
+            device="cpu",
+        )
+        assert custom_model.model_type == "gpt2"
+        custom_model.model_type = "distilgpt2"
+        assert custom_model.model_type == "distilgpt2"
+
     def test_model_forward_pass(self, model, vocab_size):
         """Test forward pass with sample input."""
         batch_size = 2

@@ -100,6 +100,7 @@ class StockTransformerModel:
         hidden_size: int = 128,
         num_hidden_layers: int = 4,
         num_attention_heads: int = 4,
+        model_type: str = "gpt2",
         device: str = "cpu"
     ):
         """
@@ -111,14 +112,17 @@ class StockTransformerModel:
             hidden_size: Hidden dimension size
             num_hidden_layers: Number of transformer layers
             num_attention_heads: Number of attention heads
+            model_type: Hugging Face model type to base the architecture on,
+                passed to ``AutoConfig.from_pretrained`` (default: "gpt2")
             device: Device to use ('cpu' or 'cuda')
         """
         self.vocab_size = vocab_size
+        self.model_type = model_type
         self.device = device
         self.class_weights = None  # Will be set via set_class_weights()
         
-        # Create custom configuration for GPT-2 style model
-        config = AutoConfig.from_pretrained("gpt2")
+        # Create custom configuration based on model_type
+        config = AutoConfig.from_pretrained(model_type)
         config.vocab_size = vocab_size
         config.max_position_embeddings = max_position_embeddings
         config.hidden_size = hidden_size
@@ -130,7 +134,7 @@ class StockTransformerModel:
         self.model.to(device)
         
         logger.info(
-            f"Initialized transformer model with vocab_size={vocab_size}, "
+            f"Initialized transformer model with model_type={model_type}, vocab_size={vocab_size}, "
             f"hidden_size={hidden_size}, num_layers={num_hidden_layers}"
         )
     

@@ -21,7 +21,7 @@ class StockDatabase:
         password: str,
         host: str = "localhost",
         port: int = 3306,
-        user: str = "root",
+        user: str = "tinker",
         database: str = "tinker"
     ):
         """Initialize database connection parameters.

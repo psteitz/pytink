@@ -14,6 +14,7 @@ from pytink.farming import (
     NUM_HIDDEN_LAYERS,
     NUM_ATTENTION_HEADS,
     MAX_POSITION_EMBEDDINGS,
+    MODEL_TYPE,
 )
 
 
@@ -25,6 +26,8 @@ def _make_entry(
     eval_accuracy=0.5,
     generation=0,
     num_words=500,
+    quote_start_date=None,
+    quote_end_date=None,
 ):
     """Create a ModelEntry with a mock model."""
     return ModelEntry(
@@ -36,6 +39,8 @@ def _make_entry(
         eval_accuracy=eval_accuracy,
         num_words=num_words,
         generation=generation,
+        quote_start_date=quote_start_date,
+        quote_end_date=quote_end_date,
     )
 
 
@@ -69,6 +74,16 @@ class TestModelEntry:
         assert entry.eval_accuracy == pytest.approx(0.6)
         assert entry.num_words == 500
         assert entry.generation == 0
+        assert entry.quote_start_date is None
+        assert entry.quote_end_date is None
+
+    def test_quote_date_range_stored(self):
+        """quote_start_date/quote_end_date are stored when provided."""
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 6, 30)
+        entry = _make_entry(quote_start_date=start, quote_end_date=end)
+        assert entry.quote_start_date == start
+        assert entry.quote_end_date == end
 
     def test_perplexity_computed_from_loss(self):
         """Perplexity equals exp(eval_loss) for normal loss values."""
@@ -174,8 +189,23 @@ class TestAppendToParquet:
             "epochs", "learning_rate", "weight_decay",
             "early_stopping_patience", "hidden_size", "num_hidden_layers",
             "num_attention_heads", "max_position_embeddings", "created_at",
+            "quote_start_date", "quote_end_date", "model_type",
         }
         assert expected_columns.issubset(set(df.columns))
+
+    def test_written_row_includes_quote_date_range(self, farm, tmp_path):
+        """quote_start_date/quote_end_date are written when present on the entry."""
+        parquet_path = tmp_path / "models.parquet"
+        start = datetime(2024, 1, 1)
+        end = datetime(2024, 6, 30)
+        entry = _make_entry(quote_start_date=start, quote_end_date=end)
+        with patch("pytink.farming.MODELS_PARQUET_PATH", parquet_path):
+            farm._append_to_parquet(entry)
+
+        df = pd.read_parquet(parquet_path)
+        row = df.iloc[0]
+        assert pd.Timestamp(row["quote_start_date"]) == pd.Timestamp(start)
+        assert pd.Timestamp(row["quote_end_date"]) == pd.Timestamp(end)
 
     def test_written_row_values_match_entry(self, farm, tmp_path):
         """Values in the parquet row match the ModelEntry and farm parameters."""
@@ -201,6 +231,7 @@ class TestAppendToParquet:
         assert row["num_hidden_layers"] == NUM_HIDDEN_LAYERS
         assert row["num_attention_heads"] == NUM_ATTENTION_HEADS
         assert row["max_position_embeddings"] == MAX_POSITION_EMBEDDINGS
+        assert row["model_type"] == MODEL_TYPE
 
     def test_appends_to_existing_parquet(self, farm, tmp_path):
         """Rows are appended to an existing parquet file, not overwritten."""
@@ -507,3 +538,48 @@ class TestBuildAndEvaluateSaveModels:
         assert farm_args.epochs == farm.epochs
         assert farm_args.batch_size == farm.batch_size
         assert farm_args.learning_rate == pytest.approx(farm.learning_rate)
+
+    def test_save_model_args_include_model_type(self, farm, tmp_path):
+        """The args kwarg passed to save_model carries model_type."""
+        result, mock_save = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result is not None
+        _, kw = mock_save.call_args
+        assert kw["args"].model_type == MODEL_TYPE
+
+    def test_stock_transformer_model_receives_model_type(self, farm, tmp_path):
+        """StockTransformerModel is constructed with model_type=MODEL_TYPE."""
+        with patch.object(farm, "_get_eligible_stocks", return_value=self._ELIGIBLE), \
+             patch.object(farm.db, "get_quotes_for_stocks", return_value=self._QUOTES), \
+             patch("pytink.farming.prepare_data") as mock_prepare, \
+             patch("pytink.farming.StockTransformerModel") as mock_model_cls, \
+             patch("pytink.farming.train_and_evaluate", return_value=(0.5, 0.7)), \
+             patch("pytink.farming.save_model"):
+            prepared = MagicMock()
+            prepared.words = ["w"] * 100
+            prepared.vocab = {"w": 0}
+            prepared.train_loader = MagicMock()
+            prepared.eval_loader = MagicMock()
+            prepared.eval_subset = [MagicMock()] * 20
+            mock_prepare.return_value = prepared
+            farm.models_dir = tmp_path
+            farm.min_stocks = 2
+            farm.max_stocks = 2
+
+            farm._build_and_evaluate(generation=0)
+
+        _, kw = mock_model_cls.call_args
+        assert kw["model_type"] == MODEL_TYPE
+
+    def test_save_model_receives_quote_date_range(self, farm, tmp_path):
+        """save_model receives training_start_date/training_end_date from the quotes used."""
+        result, mock_save = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result is not None
+        _, kw = mock_save.call_args
+        assert kw["training_start_date"] == datetime(2026, 1, 1, 0, 0, 0)
+        assert kw["training_end_date"] == datetime(2026, 1, 1, 0, 0, 0)
+
+    def test_result_entry_has_quote_date_range(self, farm, tmp_path):
+        """The returned ModelEntry carries the same quote date range passed to save_model."""
+        result, _ = self._run_build(farm, save_models_val=True, tmp_path=tmp_path)
+        assert result.quote_start_date == datetime(2026, 1, 1, 0, 0, 0)
+        assert result.quote_end_date == datetime(2026, 1, 1, 0, 0, 0)

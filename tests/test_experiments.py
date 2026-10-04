@@ -74,9 +74,9 @@ class TestConstants:
         assert DEFAULT_TICKER_SET == KNOWN_GOOD_MODELS[0]
 
     def test_sim_date_range(self):
-        """SIM_DATE_MIN starts 2025-06-01 and SIM_DATE_MAX ends 2026-03-31."""
+        """SIM_DATE_MIN starts 2025-06-01 and SIM_DATE_MAX ends 2026-08-31."""
         assert SIM_DATE_MIN == date(2025, 6, 1)
-        assert SIM_DATE_MAX == date(2026, 3, 31)
+        assert SIM_DATE_MAX == date(2026, 8, 31)
         assert SIM_DATE_MIN < SIM_DATE_MAX
 
     def test_default_num_dates(self):
@@ -101,7 +101,7 @@ class TestConstants:
     def test_default_interval_and_context(self):
         """Sampling interval and context window size match expected defaults."""
         assert DEFAULT_INTERVAL_MINUTES == 30
-        assert DEFAULT_CONTEXT_WINDOW_SIZE == 16
+        assert DEFAULT_CONTEXT_WINDOW_SIZE == 256
         assert DEFAULT_EPOCHS == 5
 
 

@@ -28,6 +28,7 @@ data:
 
 # Model Configuration
 model:
+  model_type: gpt2 # Hugging Face model type to base the architecture on (passed to AutoConfig.from_pretrained)
   hidden_size: 128
   num_hidden_layers: 4
   num_attention_heads: 4
